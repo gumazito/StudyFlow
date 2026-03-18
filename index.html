@@ -319,7 +319,87 @@ body { -webkit-font-smoothing: antialiased; }
 <body>
 <div id="root"></div>
 <script type="text/babel">
-const { useState, useEffect, useRef, useCallback, useMemo } = React;
+const { useState, useEffect, useRef, useCallback, useMemo, createContext, useContext } = React;
+
+// ============================================================
+// GLOBAL MODAL & TOAST SYSTEM — replaces alert() and prompt()
+// ============================================================
+const ModalContext = createContext();
+
+function ModalProvider({ children }) {
+  const [toast, setToast] = useState(null); // { message, type: 'success'|'error'|'info' }
+  const [modal, setModal] = useState(null); // { title, message, type: 'alert'|'confirm'|'prompt', onConfirm, onCancel, defaultValue }
+  const [promptValue, setPromptValue] = useState('');
+  const toastTimer = useRef(null);
+
+  const showToast = (message, type='info') => {
+    setToast({ message, type });
+    clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(null), 3500);
+  };
+
+  const showAlert = (message, title) => new Promise(resolve => {
+    setModal({ type:'alert', title: title||'Notice', message, onConfirm: () => { setModal(null); resolve(); } });
+  });
+
+  const showConfirm = (message, title) => new Promise(resolve => {
+    setModal({ type:'confirm', title: title||'Confirm', message,
+      onConfirm: () => { setModal(null); resolve(true); },
+      onCancel: () => { setModal(null); resolve(false); }
+    });
+  });
+
+  const showPrompt = (message, defaultVal, title) => new Promise(resolve => {
+    setPromptValue(defaultVal || '');
+    setModal({ type:'prompt', title: title||'', message,
+      onConfirm: (val) => { setModal(null); resolve(val); },
+      onCancel: () => { setModal(null); resolve(null); }
+    });
+  });
+
+  return (
+    useEffect(() => { setGlobalToast(showToast); }, []);
+    return (<ModalContext.Provider value={{ showToast, showAlert, showConfirm, showPrompt }}>
+      {children}
+      {/* Toast notification */}
+      {toast && (
+        <div style={{position:'fixed',top:16,left:'50%',transform:'translateX(-50%)',zIndex:9999,padding:'10px 20px',
+          borderRadius:'var(--radius-sm)',fontSize:13,fontWeight:600,animation:'fadeIn .3s ease',cursor:'pointer',
+          background: toast.type==='success'?'var(--success)':toast.type==='error'?'var(--danger)':'var(--primary)',
+          color:'white',boxShadow:'var(--shadow)'}} onClick={()=>setToast(null)}>
+          {toast.type==='success'?'✅ ':toast.type==='error'?'❌ ':'ℹ️ '}{toast.message}
+        </div>
+      )}
+      {/* Modal overlay */}
+      {modal && (
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.7)',zIndex:9998,display:'flex',alignItems:'center',justifyContent:'center',padding:20}}>
+          <div className="card bounce-in" style={{maxWidth:420,width:'100%',padding:24,background:'var(--bg-elevated)',borderColor:'var(--primary)'}}>
+            {modal.title && <h3 style={{fontSize:16,fontWeight:800,marginBottom:8}}>{modal.title}</h3>}
+            <p style={{fontSize:14,color:'var(--text-secondary)',lineHeight:1.5,marginBottom:16}}>{modal.message}</p>
+            {modal.type === 'prompt' && (
+              <input className="form-input" value={promptValue} onChange={e=>setPromptValue(e.target.value)}
+                style={{marginBottom:12}} autoFocus onKeyDown={e=>{ if(e.key==='Enter') modal.onConfirm(promptValue); }} />
+            )}
+            <div style={{display:'flex',gap:8,justifyContent:'flex-end'}}>
+              {(modal.type==='confirm'||modal.type==='prompt') && (
+                <button className="btn btn-ghost" onClick={modal.onCancel}>Cancel</button>
+              )}
+              <button className="btn btn-primary" onClick={()=>modal.onConfirm(modal.type==='prompt'?promptValue:true)}>
+                {modal.type==='alert'?'OK':modal.type==='confirm'?'Confirm':'Send'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </ModalContext.Provider>);
+}
+
+function useModal() { return useContext(ModalContext); }
+
+// Global toast for use outside React components (e.g. in event handlers)
+let _globalToast = null;
+function setGlobalToast(fn) { _globalToast = fn; }
+function toast(msg, type) { if (_globalToast) _globalToast(msg, type); }
 
 // ============================================================
 // FIREBASE CONFIG — PASTE YOUR VALUES FROM FIREBASE CONSOLE
@@ -564,10 +644,15 @@ const DB = {
     const snap = await fb_db.collection('follow_requests').where('toId','==',userId).where('status','==','accepted').get();
     return snap.docs.map(d=>d.data().fromId);
   },
-  async searchUsersByEmail(email) {
-    if (!fb_db) return [];
-    const snap = await fb_db.collection('users').where('email','==',email.toLowerCase().trim()).get();
-    return snap.docs.map(d=>({uid:d.id,...d.data()}));
+  async searchUsers(query) {
+    if (!fb_db || !query.trim()) return [];
+    const q = query.toLowerCase().trim();
+    // Firestore doesn't support LIKE queries, so we fetch all users and filter client-side
+    // For small user bases (<1000) this is fine; for larger scale, use Algolia or similar
+    const snap = await fb_db.collection('users').get();
+    return snap.docs.map(d=>({uid:d.id,...d.data()})).filter(u => {
+      return (u.email||'').toLowerCase().includes(q) || (u.name||'').toLowerCase().includes(q);
+    });
   },
   // --- Mentor ---
   async sendMentorRequest(mentorId, mentorName, learnerId) {
@@ -1565,12 +1650,16 @@ function App() {
                 <button className="btn btn-lg" style={{background:'linear-gradient(135deg,#e17055,#fdcb6e)',color:'white'}} onClick={()=>setActiveView('mentor')}>🧭 Mentor</button>
               )}
             </div>
+            <div style={{marginTop:24,borderTop:'1px solid var(--border)',paddingTop:16}}>
+              <button className="btn btn-ghost" onClick={()=>setActiveView('profile')}>⚙️ My Profile & Settings</button>
+            </div>
           </div>
         </div>
       </div>
     );
   }
 
+  if (currentView === 'profile') return <ProfileScreen user={user} setUser={setUser} onBack={()=>setActiveView(null)} onLogout={handleLogout} />;
   if (currentView === 'admin') return <AdminApp user={user} onSwitchView={setActiveView} onLogout={handleLogout} />;
   if (currentView === 'author') return <AuthorApp user={user} packages={packages} setPackages={setPackages} onSavePkg={savePackage} onDeletePkg={deletePackage} onSwitchView={availableViews.length>1?setActiveView:null} onLogout={handleLogout} />;
   if (currentView === 'mentor') return <MentorApp user={user} onSwitchView={availableViews.length>1?setActiveView:null} onLogout={handleLogout} />;
@@ -1789,6 +1878,216 @@ function AuthScreen({ onLogin }) {
 }
 
 // ============================================================
+// PROFILE SCREEN — Edit name, email, password, DOB, request roles
+// ============================================================
+function ProfileScreen({ user, setUser, onBack, onLogout }) {
+  const [name, setName] = useState(user.name || '');
+  const [dob, setDob] = useState(user.dob || '');
+  const [newEmail, setNewEmail] = useState('');
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [requestedRoles, setRequestedRoles] = useState([]);
+
+  const allRoles = ['learner', 'author', 'mentor'];
+  const currentRoles = user.roles || [];
+
+  const saveName = async () => {
+    if (!name.trim()) return;
+    setBusy(true); setError(''); setMessage('');
+    try {
+      await DB.updateUserProfile(user.id, { name: name.trim() });
+      setUser(prev => ({ ...prev, name: name.trim() }));
+      setMessage('Name updated successfully!');
+    } catch (e) { setError('Failed to update name: ' + e.message); }
+    setBusy(false);
+  };
+
+  const saveDob = async () => {
+    if (!dob) return;
+    setBusy(true); setError(''); setMessage('');
+    try {
+      const yearLevel = dobToYearLevel(dob);
+      await DB.updateUserProfile(user.id, { dob, yearLevel });
+      setUser(prev => ({ ...prev, dob, yearLevel }));
+      setMessage(`Date of birth updated! Year level: ${yearLevel}`);
+    } catch (e) { setError('Failed to update: ' + e.message); }
+    setBusy(false);
+  };
+
+  const changeEmail = async () => {
+    if (!newEmail.trim() || !currentPassword) { setError('Enter new email and current password'); return; }
+    setBusy(true); setError(''); setMessage('');
+    try {
+      // Re-authenticate first
+      const credential = firebase.auth.EmailAuthProvider.credential(user.email, currentPassword);
+      await fb_auth.currentUser.reauthenticateWithCredential(credential);
+      await fb_auth.currentUser.updateEmail(newEmail.trim());
+      await DB.updateUserProfile(user.id, { email: newEmail.trim() });
+      setUser(prev => ({ ...prev, email: newEmail.trim() }));
+      setMessage('Email updated successfully!');
+      setNewEmail(''); setCurrentPassword('');
+    } catch (e) {
+      setError(e.code === 'auth/wrong-password' ? 'Incorrect current password' :
+               e.code === 'auth/requires-recent-login' ? 'Please log out and log back in first, then try again' :
+               'Failed: ' + e.message);
+    }
+    setBusy(false);
+  };
+
+  const changePassword = async () => {
+    if (!currentPassword || !newPassword) { setError('Enter current and new password'); return; }
+    if (newPassword.length < 6) { setError('New password must be at least 6 characters'); return; }
+    if (newPassword !== confirmPassword) { setError('New passwords do not match'); return; }
+    setBusy(true); setError(''); setMessage('');
+    try {
+      const credential = firebase.auth.EmailAuthProvider.credential(user.email, currentPassword);
+      await fb_auth.currentUser.reauthenticateWithCredential(credential);
+      await fb_auth.currentUser.updatePassword(newPassword);
+      setMessage('Password changed successfully!');
+      setCurrentPassword(''); setNewPassword(''); setConfirmPassword('');
+    } catch (e) {
+      setError(e.code === 'auth/wrong-password' ? 'Incorrect current password' : 'Failed: ' + e.message);
+    }
+    setBusy(false);
+  };
+
+  const requestRoleChange = async () => {
+    if (requestedRoles.length === 0) return;
+    setBusy(true); setError(''); setMessage('');
+    try {
+      const newRoles = requestedRoles.filter(r => !currentRoles.includes(r));
+      if (newRoles.length === 0) { setMessage('You already have all selected roles.'); setBusy(false); return; }
+      await DB.notifyAdmin({
+        type: 'role_request',
+        userId: user.id, userName: user.name, userEmail: user.email,
+        requestedRoles: newRoles,
+        message: `${user.name} (${user.email}) is requesting additional roles: ${newRoles.join(', ')}`
+      });
+      setMessage(`Role request submitted for: ${newRoles.join(', ')}. An admin will review your request.`);
+      setRequestedRoles([]);
+    } catch (e) { setError('Failed to submit request: ' + e.message); }
+    setBusy(false);
+  };
+
+  return (
+    <div className="app">
+      <div className="gradient-bg" />
+      <nav className="nav">
+        <button className="nav-btn" onClick={onBack}>← Back</button>
+        <div className="nav-logo">StudyFlow</div>
+        <div className="nav-right">
+          <span className="nav-user">{user.name}</span>
+          <button className="nav-btn" onClick={onLogout}>Logout</button>
+        </div>
+      </nav>
+      <div className="main">
+        <div className="page fade-in" style={{maxWidth:600,margin:'0 auto'}}>
+          <div className="page-header"><h1>⚙️ My Profile</h1><p>Manage your account settings</p></div>
+
+          {message && <div className="auth-success" style={{marginBottom:12}}>{message}</div>}
+          {error && <div className="auth-error" style={{marginBottom:12}}>{error}</div>}
+
+          {/* Account info */}
+          <div className="card" style={{marginBottom:12,padding:14}}>
+            <h3 style={{fontSize:14,fontWeight:700,marginBottom:4}}>Account</h3>
+            <div style={{fontSize:12,color:'var(--text-muted)',marginBottom:4}}>Email: {user.email}</div>
+            <div style={{fontSize:12,color:'var(--text-muted)',marginBottom:4}}>Roles: {currentRoles.map(r=>r==='learner'?'🎓 Learner':r==='author'?'✏️ Publisher':r==='mentor'?'🧭 Mentor':r==='admin'?'🛡️ Admin':r).join(', ')}</div>
+            {user.yearLevel && <div style={{fontSize:12,color:'var(--text-muted)'}}>Year Level: {user.yearLevel}</div>}
+          </div>
+
+          {/* Edit name */}
+          <div className="card" style={{marginBottom:12,padding:14}}>
+            <h3 style={{fontSize:14,fontWeight:700,marginBottom:8}}>✏️ Name</h3>
+            <div style={{display:'flex',gap:8}}>
+              <input className="form-input" value={name} onChange={e=>setName(e.target.value)} style={{flex:1}} />
+              <button className="btn btn-primary btn-sm" onClick={saveName} disabled={busy || name.trim()===user.name}>Save</button>
+            </div>
+          </div>
+
+          {/* Edit DOB */}
+          <div className="card" style={{marginBottom:12,padding:14}}>
+            <h3 style={{fontSize:14,fontWeight:700,marginBottom:8}}>🎂 Date of Birth</h3>
+            <div style={{display:'flex',gap:8,alignItems:'center'}}>
+              <input type="date" className="form-input" value={dob} onChange={e=>setDob(e.target.value)} style={{flex:1,colorScheme:'dark'}} />
+              <button className="btn btn-primary btn-sm" onClick={saveDob} disabled={busy || !dob}>Save</button>
+            </div>
+            {dob && <div className="form-hint" style={{color:'var(--accent)',marginTop:4}}>Year level: {dobToYearLevel(dob)}</div>}
+          </div>
+
+          {/* Change email */}
+          <div className="card" style={{marginBottom:12,padding:14}}>
+            <h3 style={{fontSize:14,fontWeight:700,marginBottom:8}}>📧 Change Email</h3>
+            <div className="form-group" style={{marginBottom:8}}>
+              <input className="form-input" type="email" value={newEmail} onChange={e=>setNewEmail(e.target.value)} placeholder="New email address" />
+            </div>
+            <div className="form-group" style={{marginBottom:8}}>
+              <input className="form-input" type="password" value={currentPassword} onChange={e=>setCurrentPassword(e.target.value)} placeholder="Current password (required to change email)" />
+            </div>
+            <button className="btn btn-primary btn-sm" onClick={changeEmail} disabled={busy || !newEmail.trim()}>Update Email</button>
+          </div>
+
+          {/* Change password */}
+          <div className="card" style={{marginBottom:12,padding:14}}>
+            <h3 style={{fontSize:14,fontWeight:700,marginBottom:8}}>🔒 Change Password</h3>
+            <div className="form-group" style={{marginBottom:8}}>
+              <input className="form-input" type="password" value={currentPassword} onChange={e=>setCurrentPassword(e.target.value)} placeholder="Current password" />
+            </div>
+            <div className="form-group" style={{marginBottom:8}}>
+              <input className="form-input" type="password" value={newPassword} onChange={e=>setNewPassword(e.target.value)} placeholder="New password (min 6 characters)" />
+            </div>
+            <div className="form-group" style={{marginBottom:8}}>
+              <input className="form-input" type="password" value={confirmPassword} onChange={e=>setConfirmPassword(e.target.value)} placeholder="Confirm new password" />
+            </div>
+            <button className="btn btn-primary btn-sm" onClick={changePassword} disabled={busy || !currentPassword || !newPassword}>Change Password</button>
+          </div>
+
+          {/* Request role change */}
+          <div className="card" style={{marginBottom:12,padding:14}}>
+            <h3 style={{fontSize:14,fontWeight:700,marginBottom:8}}>🎭 Request Additional Roles</h3>
+            <p style={{fontSize:12,color:'var(--text-muted)',marginBottom:8}}>Select roles you'd like to be added to your account. An admin will review and approve.</p>
+            <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:10}}>
+              {allRoles.map(role => {
+                const hasRole = currentRoles.includes(role);
+                const requested = requestedRoles.includes(role);
+                return (
+                  <button key={role} className="btn btn-sm" style={{
+                    background: hasRole ? 'rgba(0,184,148,.15)' : requested ? 'var(--primary)' : 'var(--bg)',
+                    color: hasRole ? 'var(--success)' : requested ? 'white' : 'var(--text-muted)',
+                    border: `1px solid ${hasRole ? 'var(--success)' : requested ? 'var(--primary)' : 'var(--border)'}`,
+                    cursor: hasRole ? 'default' : 'pointer'
+                  }} onClick={() => {
+                    if (hasRole) return;
+                    setRequestedRoles(prev => prev.includes(role) ? prev.filter(r=>r!==role) : [...prev, role]);
+                  }}>
+                    {role==='learner'?'🎓 Learner':role==='author'?'✏️ Publisher':role==='mentor'?'🧭 Mentor':''}
+                    {hasRole ? ' ✓' : ''}
+                  </button>
+                );
+              })}
+            </div>
+            {requestedRoles.length > 0 && (
+              <button className="btn btn-primary btn-sm" onClick={requestRoleChange} disabled={busy}>
+                📤 Submit Role Request ({requestedRoles.filter(r=>!currentRoles.includes(r)).length} new)
+              </button>
+            )}
+          </div>
+
+          {/* Danger zone */}
+          <div className="card" style={{marginBottom:40,padding:14,borderColor:'rgba(225,112,85,.3)'}}>
+            <h3 style={{fontSize:14,fontWeight:700,marginBottom:8,color:'var(--danger)'}}>⚠️ Account</h3>
+            <button className="btn btn-ghost btn-sm" onClick={onLogout}>Log Out</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
 // MENTOR APP — View and guide mentees
 // ============================================================
 function MentorApp({ user, onSwitchView, onLogout }) {
@@ -1822,13 +2121,13 @@ function MentorApp({ user, onSwitchView, onLogout }) {
 
   const searchForLearner = async () => {
     if (!searchEmail.trim()) return;
-    const results = await DB.searchUsersByEmail(searchEmail.trim());
+    const results = await DB.searchUsers(searchEmail.trim());
     setSearchResults(results.filter(u => u.uid !== user.id));
   };
 
   const requestMentee = async (learner) => {
     await DB.sendMentorRequest(user.id, user.name, learner.uid);
-    alert(`Mentor request sent to ${learner.name}. They need to approve it.`);
+    toast(`Mentor request sent to ${learner.name}. They need to approve it.`, 'success');
     setSearchEmail(''); setSearchResults([]);
   };
 
@@ -1852,7 +2151,7 @@ function MentorApp({ user, onSwitchView, onLogout }) {
           <div className="card" style={{marginBottom:16,padding:14}}>
             <h3 style={{fontSize:14,fontWeight:700,marginBottom:8}}>Add a Learner</h3>
             <div style={{display:'flex',gap:8}}>
-              <input className="form-input" value={searchEmail} onChange={e=>setSearchEmail(e.target.value)} placeholder="Search by email..." style={{flex:1}} onKeyDown={e=>e.key==='Enter'&&searchForLearner()} />
+              <input className="form-input" value={searchEmail} onChange={e=>setSearchEmail(e.target.value)} placeholder="Search by name or email..." style={{flex:1}} onKeyDown={e=>e.key==='Enter'&&searchForLearner()} />
               <button className="btn btn-primary btn-sm" onClick={searchForLearner}>Search</button>
             </div>
             {searchResults.map(u => (
@@ -1953,7 +2252,7 @@ function AdminApp({ user, onSwitchView, onLogout }) {
     if (!u) return;
     const currentRoles = u.roles || [];
     const newRoles = currentRoles.includes(role) ? currentRoles.filter(r => r !== role) : [...currentRoles, role];
-    if (newRoles.length === 0) { alert('User must have at least one role'); return; }
+    if (newRoles.length === 0) { toast('User must have at least one role', 'error'); return; }
     await DB.updateUserRole(uid, newRoles, undefined);
     setUsers(prev => prev.map(x => x.uid === uid ? { ...x, roles: newRoles } : x));
   };
@@ -2032,16 +2331,16 @@ function AdminApp({ user, onSwitchView, onLogout }) {
                       <div style={{fontSize:12,color:'var(--text-muted)'}}>{u.email}</div>
                     </div>
                     <div style={{display:'flex',gap:4,flexWrap:'wrap'}}>
-                      {['learner','author','admin'].map(role => (
+                      {['learner','author','mentor','admin'].map(role => (
                         <button key={role} className="btn btn-sm"
                           style={{
-                            background: (u.roles||[]).includes(role) ? (role==='admin'?'var(--danger)':role==='author'?'var(--primary)':'var(--accent)') : 'var(--bg)',
+                            background: (u.roles||[]).includes(role) ? (role==='admin'?'var(--danger)':role==='author'?'var(--primary)':role==='mentor'?'#e17055':'var(--accent)') : 'var(--bg)',
                             color: (u.roles||[]).includes(role) ? 'white' : 'var(--text-muted)',
                             border: `1px solid ${(u.roles||[]).includes(role) ? 'transparent' : 'var(--border)'}`,
                             fontSize:11, padding:'4px 10px'
                           }}
                           onClick={()=>toggleUserRole(u.uid, role)}>
-                          {role==='learner'?'🎓 Learner':role==='author'?'✏️ Publisher':role==='admin'?'🛡️ Admin':''}
+                          {role==='learner'?'🎓 Learner':role==='author'?'✏️ Publisher':role==='mentor'?'🧭 Mentor':role==='admin'?'🛡️ Admin':''}
                         </button>
                       ))}
                     </div>
@@ -2143,10 +2442,10 @@ function AuthorApp({ user, packages, setPackages, onSavePkg, onDeletePkg, onSwit
     if (!pkg) return;
     let updated;
     if (pkg.status==='draft') {
-      if (!pkg.name) { alert('Package needs a name before publishing.'); return; }
-      if (pkg.facts.length===0 && !pkg.autoResearch) { alert('Package needs either content or Auto-Research enabled before publishing.'); return; }
+      if (!pkg.name) { toast('Package needs a name before publishing', 'error'); return; }
+      if (pkg.facts.length===0 && !pkg.autoResearch) { toast('Package needs either content or Auto-Research enabled before publishing', 'error'); return; }
       if (pkg.facts.length===0 && pkg.autoResearch) {
-        if (!pkg.subject && !pkg.name && (!pkg.testPatterns || pkg.testPatterns.topicsCovered.length===0)) { alert('Auto-Research requires a name, subject, or practice test to generate content.'); return; }
+        if (!pkg.subject && !pkg.name && (!pkg.testPatterns || pkg.testPatterns.topicsCovered.length===0)) { toast('Auto-Research requires a name, subject, or practice test to generate content', 'error'); return; }
         const result = generateAutoResearchContent(pkg.subject, pkg.yearLevel, pkg.name, pkg.testPatterns);
         updated = {...pkg, status:'published', updatedAt:Date.now(), facts:result.facts, categories:result.categories, autoResearchGenerated:true, autoResearchNote:result.note};
       } else {
@@ -2379,11 +2678,11 @@ function AuthorApp({ user, packages, setPackages, onSavePkg, onDeletePkg, onSwit
                 <button className="btn btn-ghost btn-sm" style={{marginTop:6}} onClick={()=>{
                   const el = document.getElementById('bulk-invite');
                   const emails = el.value.split(/[,\n]/).map(e=>e.trim()).filter(e=>e.includes('@'));
-                  if (emails.length===0) { alert('No valid emails found'); return; }
+                  if (emails.length===0) { toast('No valid emails found','error'); return; }
                   const link = window.location.href.split('?')[0];
                   const text = `You're invited to StudyFlow!\n\nSign up here: ${link}\n\nCreate an account as a Student to access learning courses.\n\nInvited emails:\n${emails.join('\n')}`;
-                  navigator.clipboard.writeText(text).then(()=>alert(`Invite text copied for ${emails.length} students! Paste it into an email.`)).catch(()=>{
-                    prompt('Copy this invite text:', text);
+                  navigator.clipboard.writeText(text).then(()=>toast(`Invite text copied for ${emails.length} students!`,'success')).catch(()=>{
+                    toast('Invite text ready — check console','info'); console.log(text);
                   });
                 }}>📋 Copy Invite Text</button>
                 <button className="btn btn-ghost btn-sm" style={{marginTop:6,marginLeft:6}} onClick={()=>{
@@ -2442,7 +2741,7 @@ function PackageEditor({ pkg, onSave, onCancel, userId }) {
 
       for (const file of files) {
         const text = await parseFile(file);
-        if (text.trim().length < 20) { alert(`"${file.name}" doesn't seem to have enough text content.`); continue; }
+        if (text.trim().length < 20) { toast(`"${file.name}" doesn't have enough text content`,'error'); continue; }
         newContent.push({ id:genId(), name:file.name, type:contentType, text, addedAt:Date.now() });
         if (contentType === CONTENT_TYPES.RESEARCH) allResearchText += '\n\n' + text;
         else allTestText += '\n\n' + text;
@@ -2459,7 +2758,7 @@ function PackageEditor({ pkg, onSave, onCancel, userId }) {
 
       setData(d => ({...d, content:newContent, facts, categories, testPatterns }));
     } catch(err) {
-      alert('Error processing file: ' + err.message);
+      toast('Error processing file: ' + err.message, 'error');
     }
     setProcessing(false);
   };
@@ -2477,7 +2776,7 @@ function PackageEditor({ pkg, onSave, onCancel, userId }) {
 
   const runAutoResearch = async () => {
     if (!data.subject && !data.name && (!data.testPatterns || data.testPatterns.topicsCovered.length === 0)) {
-      alert('Please set a package name/subject, or upload a practice test first so we know what to research.'); return;
+      toast('Set a package name/subject or upload a practice test first','error'); return;
     }
     setProcessing(true);
 
@@ -2532,10 +2831,10 @@ function PackageEditor({ pkg, onSave, onCancel, userId }) {
   };
 
   const save = () => {
-    if (!data.name.trim()) { alert('Please give your package a name.'); return; }
+    if (!data.name.trim()) { toast('Please give your package a name','error'); return; }
     // If auto-research is on but no content, require subject or name
     if (data.facts.length === 0 && data.autoResearch && !data.subject) {
-      alert('With Auto-Research enabled and no uploaded content, please set a Subject so we know what to research.'); return;
+      toast('Set a Subject so auto-research knows what to generate','error'); return;
     }
     // If auto-research is on AND no content, auto-generate on save
     if (data.facts.length === 0 && data.autoResearch) {
@@ -2972,6 +3271,16 @@ function PackageEditor({ pkg, onSave, onCancel, userId }) {
 // ============================================================
 // LEARNER APP
 // ============================================================
+// Cheer button component with modal input
+function CheerButton({ userId, userName, toId }) {
+  const { showPrompt, showToast } = useModal();
+  const send = async () => {
+    const msg = await showPrompt('Send a message of encouragement:', 'Keep it up! 💪', '💪 Send Encouragement');
+    if (msg) { await DB.sendCheer(userId, userName, toId, msg); showToast('Cheer sent!', 'success'); }
+  };
+  return <button className="btn btn-sm" style={{background:'rgba(253,203,110,.15)',color:'var(--warning)',border:'none',fontSize:11}} onClick={send}>💪 Cheer</button>;
+}
+
 function LearnerApp({ user, packages, onSwitchView, onLogout }) {
   const [screen, setScreen] = useState('browse'); // browse, learn, test-setup, test, progress, course-detail, social
   const [activePkg, setActivePkg] = useState(null);
@@ -3079,7 +3388,7 @@ function LearnerApp({ user, packages, onSwitchView, onLogout }) {
     if (!feedbackText.trim()) return;
     await DB.saveFeedback({ userId: user.id, userName: user.name, userEmail: user.email, packageId: pkg.id, packageName: pkg.name, message: feedbackText, rating: feedbackRating });
     setFeedbackText(''); setFeedbackRating(0);
-    alert('Feedback submitted! The publisher will be notified.');
+    toast('Feedback submitted! The publisher will be notified.','success');
   };
 
   // Overall stats
@@ -3257,7 +3566,7 @@ function LearnerApp({ user, packages, onSwitchView, onLogout }) {
                       <div className="pkg-actions">
                         {pkg.facts.length > 0 && <button className="btn btn-primary btn-sm" onClick={()=>{recordAccess(pkg);setActivePkg(pkg);setScreen('learn');}}>⚡ Learn</button>}
                         <button className="btn btn-ghost btn-sm" onClick={()=>{
-                          if(pkg.facts.length===0){alert('No content yet');return;} recordAccess(pkg);setActivePkg(pkg);setScreen('test-setup');
+                          if(pkg.facts.length===0){toast('No content yet','info');return;} recordAccess(pkg);setActivePkg(pkg);setScreen('test-setup');
                         }}>📝 Test</button>
                         <button className="btn btn-sm" style={{background:'none',color:'var(--text-muted)',border:'none',fontSize:11}} onClick={()=>{setActivePkg(pkg);setScreen('course-detail');}}>📊</button>
                       </div>
@@ -3326,14 +3635,14 @@ function LearnerApp({ user, packages, onSwitchView, onLogout }) {
             <div className="card" style={{marginBottom:16,padding:14}}>
               <h3 style={{fontSize:14,fontWeight:700,marginBottom:8}}>Find Learners</h3>
               <div style={{display:'flex',gap:8}}>
-                <input className="form-input" value={followSearch} onChange={e=>setFollowSearch(e.target.value)} placeholder="Search by email..." style={{flex:1}} onKeyDown={async e=>{if(e.key==='Enter'){const r=await DB.searchUsersByEmail(followSearch);setFollowSearchResults(r.filter(u=>u.uid!==user.id));}}} />
-                <button className="btn btn-primary btn-sm" onClick={async()=>{const r=await DB.searchUsersByEmail(followSearch);setFollowSearchResults(r.filter(u=>u.uid!==user.id));}}>Search</button>
+                <input className="form-input" value={followSearch} onChange={e=>setFollowSearch(e.target.value)} placeholder="Search by name or email..." style={{flex:1}} onKeyDown={async e=>{if(e.key==='Enter'){const r=await DB.searchUsers(followSearch);setFollowSearchResults(r.filter(u=>u.uid!==user.id));}}} />
+                <button className="btn btn-primary btn-sm" onClick={async()=>{const r=await DB.searchUsers(followSearch);setFollowSearchResults(r.filter(u=>u.uid!==user.id));}}>Search</button>
               </div>
               {followSearchResults.map(u => (
                 <div key={u.uid} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 0',borderBottom:'1px solid var(--border)'}}>
                   <div><div style={{fontWeight:600,fontSize:13}}>{u.name}</div><div style={{fontSize:11,color:'var(--text-muted)'}}>{u.email}</div></div>
                   {following.includes(u.uid) ? <span style={{fontSize:12,color:'var(--success)'}}>✓ Following</span> :
-                    <button className="btn btn-primary btn-sm" onClick={async()=>{await DB.sendFollowRequest(user.id,u.uid,user.name);alert('Follow request sent!');}}>Follow</button>}
+                    <button className="btn btn-primary btn-sm" onClick={async()=>{await DB.sendFollowRequest(user.id,u.uid,user.name);toast('Follow request sent!','success');}}>Follow</button>}
                 </div>
               ))}
             </div>
@@ -3357,10 +3666,7 @@ function LearnerApp({ user, packages, onSwitchView, onLogout }) {
                       </div>
                       <div style={{display:'flex',gap:8,alignItems:'center'}}>
                         <div style={{textAlign:'center'}}><div style={{fontSize:16,fontWeight:800,color:avg>=70?'var(--success)':'var(--warning)'}}>{avg}%</div><div style={{fontSize:9,color:'var(--text-muted)'}}>Avg</div></div>
-                        <button className="btn btn-sm" style={{background:'rgba(253,203,110,.15)',color:'var(--warning)',border:'none',fontSize:11}} onClick={async()=>{
-                          const msg = prompt('Send encouragement:','Keep it up! 💪');
-                          if(msg) { await DB.sendCheer(user.id,user.name,fid,msg); alert('Cheer sent!'); }
-                        }}>💪 Cheer</button>
+                        <CheerButton userId={user.id} userName={user.name} toId={fid} />
                       </div>
                     </div>
                   </div>
@@ -3502,7 +3808,7 @@ function LearnerApp({ user, packages, onSwitchView, onLogout }) {
             {(learningRating > 0 || testingRating > 0) && (
               <button className="btn btn-sm btn-ghost" style={{marginBottom:12}} onClick={async()=>{
                 await DB.saveRating(user.id, activePkg.id, { learning: learningRating, testing: testingRating });
-                alert('Rating saved!'); }}>Save Rating</button>
+                toast('Rating saved!','success'); }}>Save Rating</button>
             )}
 
             <h3 style={{fontSize:15,fontWeight:700,margin:'10px 0 10px'}}>💬 Send Feedback to Publisher</h3>
@@ -3928,7 +4234,7 @@ function ScoreScreen({ results, elapsed, total, onRetry, onHome }) {
 // ============================================================
 // RENDER
 // ============================================================
-ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+ReactDOM.createRoot(document.getElementById('root')).render(<ModalProvider><App /></ModalProvider>);
 </script>
 </body>
 </html>
