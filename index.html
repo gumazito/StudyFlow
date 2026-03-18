@@ -394,6 +394,61 @@ const DB = {
   async markNotificationRead(id) {
     if (fb_db) await fb_db.collection('admin_notifications').doc(id).update({ read: true });
   },
+  // --- Test results & progress ---
+  async saveTestResult(result) {
+    // result: { userId, userName, userEmail, packageId, packageName, score, total, correct, elapsed, timestamp }
+    if (!fb_db) return;
+    await fb_db.collection('test_results').add({ ...result, timestamp: Date.now() });
+  },
+  async getTestResultsForUser(userId) {
+    if (!fb_db) return [];
+    const snap = await fb_db.collection('test_results').where('userId','==',userId).orderBy('timestamp','desc').limit(200).get();
+    return snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  },
+  async getTestResultsForPackage(packageId) {
+    if (!fb_db) return [];
+    const snap = await fb_db.collection('test_results').where('packageId','==',packageId).orderBy('timestamp','desc').limit(500).get();
+    return snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  },
+  async getAllTestResults() {
+    if (!fb_db) return [];
+    const snap = await fb_db.collection('test_results').orderBy('timestamp','desc').limit(1000).get();
+    return snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  },
+  // --- Learner progress (which courses accessed, completed, etc.) ---
+  async saveLearnerProgress(userId, packageId, data) {
+    if (!fb_db) return;
+    const docId = `${userId}_${packageId}`;
+    await fb_db.collection('learner_progress').doc(docId).set({ userId, packageId, ...data, updatedAt: Date.now() }, { merge: true });
+  },
+  async getLearnerProgress(userId) {
+    if (!fb_db) return [];
+    const snap = await fb_db.collection('learner_progress').where('userId','==',userId).get();
+    return snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  },
+  async getProgressForPackage(packageId) {
+    if (!fb_db) return [];
+    const snap = await fb_db.collection('learner_progress').where('packageId','==',packageId).get();
+    return snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  },
+  // --- Feedback ---
+  async saveFeedback(feedback) {
+    // feedback: { userId, userName, packageId, packageName, message, rating, timestamp }
+    if (!fb_db) return;
+    await fb_db.collection('feedback').add({ ...feedback, timestamp: Date.now(), status: 'new' });
+    // Notify publisher
+    await DB.notifyAdmin({ type: 'feedback', message: `Feedback on "${feedback.packageName}" from ${feedback.userName}: "${feedback.message.slice(0,80)}"`, packageId: feedback.packageId, userId: feedback.userId });
+  },
+  async getFeedbackForPackage(packageId) {
+    if (!fb_db) return [];
+    const snap = await fb_db.collection('feedback').where('packageId','==',packageId).orderBy('timestamp','desc').get();
+    return snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  },
+  async getAllFeedback() {
+    if (!fb_db) return [];
+    const snap = await fb_db.collection('feedback').orderBy('timestamp','desc').limit(200).get();
+    return snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  },
 };
 
 // ============================================================
@@ -1554,11 +1609,20 @@ function AdminApp({ user, onSwitchView, onLogout }) {
 // AUTHOR APP (now called Publisher internally)
 // ============================================================
 function AuthorApp({ user, packages, setPackages, onSavePkg, onDeletePkg, onSwitchView, onLogout }) {
-  const [screen, setScreen] = useState('dashboard'); // dashboard, editor
+  const [screen, setScreen] = useState('dashboard'); // dashboard, editor, analytics
   const [editingPkg, setEditingPkg] = useState(null);
   const [processing, setProcessing] = useState(false);
+  const [search, setSearch] = useState('');
+  const [analyticsData, setAnalyticsData] = useState(null);
+  const [analyticsPkg, setAnalyticsPkg] = useState(null);
+  const [allFeedback, setAllFeedback] = useState([]);
 
-  const myPackages = packages.filter(p => p.authorId === user.id || p.authorId === 'demo-author');
+  const myPackages = packages.filter(p => {
+    const isMine = p.authorId === user.id || p.authorId === 'demo-author';
+    if (!isMine) return false;
+    if (search) { const q=search.toLowerCase(); return (p.name||'').toLowerCase().includes(q)||(p.subject||'').toLowerCase().includes(q)||(p.yearLevel||'').toLowerCase().includes(q); }
+    return true;
+  });
 
   const createNew = () => {
     const newPkg = {
@@ -1629,6 +1693,16 @@ function AuthorApp({ user, packages, setPackages, onSavePkg, onDeletePkg, onSwit
               </div>
               <button className="btn btn-primary" onClick={createNew}>+ New Package</button>
             </div>
+            {/* Search + tabs */}
+            <input className="form-input" value={search} onChange={e=>setSearch(e.target.value)} placeholder="🔍 Search your packages..." style={{marginBottom:12,fontSize:14}} />
+            <div className="tabs" style={{marginBottom:12}}>
+              <button className={`tab ${screen==='dashboard'?'active':''}`} onClick={()=>setScreen('dashboard')}>📦 Packages</button>
+              <button className={`tab ${screen==='analytics'?'active':''}`} onClick={()=>{
+                setScreen('analytics');
+                // Load all test results and feedback
+                Promise.all([DB.getAllTestResults(), DB.getAllFeedback()]).then(([res, fb]) => { setAnalyticsData(res); setAllFeedback(fb); });
+              }}>📊 Analytics</button>
+            </div>
             {myPackages.length > 0 ? (
               <div className="card-grid">
                 {myPackages.map((pkg,i) => (
@@ -1658,6 +1732,12 @@ function AuthorApp({ user, packages, setPackages, onSavePkg, onDeletePkg, onSwit
                         {pkg.status==='published' ? '⏸ Unpublish' : '🚀 Publish'}
                       </button>
                       <button className="btn btn-danger btn-sm" onClick={(e)=>{e.stopPropagation();deletePkg(pkg.id);}}>🗑</button>
+                      <button className="btn btn-sm" style={{background:'none',color:'var(--accent)',border:'1px solid var(--accent)',fontSize:11}} onClick={(e)=>{
+                        e.stopPropagation(); setAnalyticsPkg(pkg); setScreen('analytics');
+                        Promise.all([DB.getTestResultsForPackage(pkg.id), DB.getFeedbackForPackage(pkg.id), DB.getProgressForPackage(pkg.id)]).then(([res,fb,prog]) => {
+                          setAnalyticsData(res); setAllFeedback(fb);
+                        });
+                      }}>📊</button>
                     </div>
                   </div>
                 ))}
@@ -1665,12 +1745,106 @@ function AuthorApp({ user, packages, setPackages, onSavePkg, onDeletePkg, onSwit
             ) : (
               <div className="empty-state">
                 <div className="empty-icon">📦</div>
-                <h3>No packages yet</h3>
-                <p>Create your first learning package to get started</p>
+                <h3>{search ? 'No matches' : 'No packages yet'}</h3>
+                <p>{search ? 'Try different search terms' : 'Create your first learning package to get started'}</p>
               </div>
             )}
           </div>
         )}
+
+        {/* PUBLISHER ANALYTICS */}
+        {screen === 'analytics' && (
+          <div className="page fade-in">
+            <button className="nav-btn" style={{marginBottom:12}} onClick={()=>{setScreen('dashboard');setAnalyticsPkg(null);}}>← Back to packages</button>
+            <h1 style={{fontSize:22,fontWeight:800,marginBottom:4}}>📊 {analyticsPkg ? analyticsPkg.name : 'All Courses'} Analytics</h1>
+            <p style={{fontSize:13,color:'var(--text-secondary)',marginBottom:16}}>{analyticsPkg ? 'Detailed performance for this course' : 'Overview across all your published courses'}</p>
+
+            {analyticsData === null ? (
+              <div style={{textAlign:'center',padding:40}}><div className="processing-spinner" style={{margin:'0 auto 12px'}}/><p>Loading analytics...</p></div>
+            ) : (
+              <>
+                {/* Summary stats */}
+                <div style={{display:'flex',gap:10,marginBottom:20,flexWrap:'wrap'}}>
+                  {[
+                    {n:analyticsData.length, l:'Total Tests Taken', c:'var(--primary-light)'},
+                    {n:[...new Set(analyticsData.map(r=>r.userId))].length, l:'Unique Learners', c:'var(--accent)'},
+                    {n:analyticsData.length ? Math.round(analyticsData.reduce((a,r)=>a+r.score,0)/analyticsData.length) + '%' : '—', l:'Avg Score', c:'var(--success)'},
+                    {n:analyticsData.filter(r=>r.score>=70).length, l:'Passing (70%+)', c:'var(--success)'},
+                  ].map((s,i) => (
+                    <div key={i} style={{flex:1,minWidth:80,padding:'14px',background:'var(--bg-card)',borderRadius:'var(--radius-sm)',border:'1px solid var(--border)',textAlign:'center'}}>
+                      <div style={{fontSize:24,fontWeight:800,color:s.c}}>{s.n}</div>
+                      <div style={{fontSize:10,color:'var(--text-muted)'}}>{s.l}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Per-student breakdown */}
+                <h3 style={{fontSize:15,fontWeight:700,marginBottom:10}}>👥 Student Performance</h3>
+                {(() => {
+                  const byStudent = {};
+                  analyticsData.forEach(r => {
+                    if (!byStudent[r.userId]) byStudent[r.userId] = { name: r.userName||r.userEmail, email: r.userEmail, results: [] };
+                    byStudent[r.userId].results.push(r);
+                  });
+                  const students = Object.entries(byStudent).map(([uid, data]) => ({
+                    uid, ...data,
+                    avg: Math.round(data.results.reduce((a,r)=>a+r.score,0)/data.results.length),
+                    best: Math.max(...data.results.map(r=>r.score)),
+                    latest: data.results[0]?.score || 0,
+                    count: data.results.length
+                  }));
+                  return students.length > 0 ? students.sort((a,b)=>b.latest-a.latest).map(s => (
+                    <div key={s.uid} className="card" style={{marginBottom:6,padding:12}}>
+                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8}}>
+                        <div>
+                          <div style={{fontWeight:700,fontSize:14}}>{s.name}</div>
+                          <div style={{fontSize:11,color:'var(--text-muted)'}}>{s.email} · {s.count} test{s.count!==1?'s':''}</div>
+                        </div>
+                        <div style={{display:'flex',gap:8}}>
+                          <div style={{textAlign:'center'}}><div style={{fontSize:16,fontWeight:800,color:s.avg>=70?'var(--success)':s.avg>=50?'var(--warning)':'var(--danger)'}}>{s.avg}%</div><div style={{fontSize:9,color:'var(--text-muted)'}}>Avg</div></div>
+                          <div style={{textAlign:'center'}}><div style={{fontSize:16,fontWeight:800,color:'var(--accent)'}}>{s.best}%</div><div style={{fontSize:9,color:'var(--text-muted)'}}>Best</div></div>
+                          <div style={{textAlign:'center'}}><div style={{fontSize:16,fontWeight:800}}>{s.latest}%</div><div style={{fontSize:9,color:'var(--text-muted)'}}>Latest</div></div>
+                        </div>
+                      </div>
+                    </div>
+                  )) : <p style={{fontSize:13,color:'var(--text-muted)'}}>No test results yet.</p>;
+                })()}
+
+                {/* Recent test results */}
+                <h3 style={{fontSize:15,fontWeight:700,margin:'20px 0 10px'}}>📝 Recent Test Results</h3>
+                {analyticsData.slice(0,20).map((r,i) => (
+                  <div key={r.id||i} className="card" style={{marginBottom:4,padding:10}}>
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                      <div>
+                        <div style={{fontSize:13,fontWeight:600}}>{r.userName||'Unknown'} — {r.packageName||'Course'}</div>
+                        <div style={{fontSize:11,color:'var(--text-muted)'}}>{r.timestamp ? new Date(r.timestamp).toLocaleString() : ''}</div>
+                      </div>
+                      <div style={{fontSize:16,fontWeight:800,color:r.score>=70?'var(--success)':r.score>=50?'var(--warning)':'var(--danger)'}}>{r.score}%</div>
+                    </div>
+                  </div>
+                ))}
+
+                {/* Feedback */}
+                {allFeedback.length > 0 && (
+                  <>
+                    <h3 style={{fontSize:15,fontWeight:700,margin:'20px 0 10px'}}>💬 Feedback ({allFeedback.length})</h3>
+                    {allFeedback.map((f,i) => (
+                      <div key={f.id||i} className="card" style={{marginBottom:6,padding:12,borderLeft:'3px solid var(--primary)'}}>
+                        <div style={{display:'flex',justifyContent:'space-between',marginBottom:4}}>
+                          <div style={{fontWeight:600,fontSize:13}}>{f.userName} on "{f.packageName}"</div>
+                          <div style={{fontSize:11,color:'var(--text-muted)'}}>{f.timestamp ? new Date(f.timestamp).toLocaleString() : ''}</div>
+                        </div>
+                        {f.rating > 0 && <div style={{marginBottom:4}}>{'⭐'.repeat(f.rating)}{'☆'.repeat(5-f.rating)}</div>}
+                        <div style={{fontSize:13,color:'var(--text-secondary)'}}>{f.message}</div>
+                      </div>
+                    ))}
+                  </>
+                )}
+              </>
+            )}
+          </div>
+        )}
+
         {screen === 'editor' && editingPkg && (
           <PackageEditor pkg={editingPkg} onSave={savePkg} onCancel={()=>{setScreen('dashboard');setEditingPkg(null);}} />
         )}
@@ -2067,94 +2241,273 @@ function PackageEditor({ pkg, onSave, onCancel }) {
 // LEARNER APP
 // ============================================================
 function LearnerApp({ user, packages, onSwitchView, onLogout }) {
-  const [screen, setScreen] = useState('browse'); // browse, learn, test-setup, test
+  const [screen, setScreen] = useState('browse'); // browse, learn, test-setup, test, progress, course-detail, feedback
   const [activePkg, setActivePkg] = useState(null);
   const [testConfig, setTestConfig] = useState(null);
+  const [search, setSearch] = useState('');
+  const [filterStatus, setFilterStatus] = useState('all'); // all, new, inprogress, completed
   const [filterSubject, setFilterSubject] = useState('');
-  const [filterYear, setFilterYear] = useState('');
+  const [myProgress, setMyProgress] = useState([]);
+  const [myResults, setMyResults] = useState([]);
+  const [loadedData, setLoadedData] = useState(false);
+  const [feedbackText, setFeedbackText] = useState('');
+  const [feedbackRating, setFeedbackRating] = useState(0);
 
+  // Load learner data
+  useEffect(() => {
+    if (!loadedData && firebaseConfigured) {
+      Promise.all([DB.getLearnerProgress(user.id), DB.getTestResultsForUser(user.id)]).then(([prog, res]) => {
+        setMyProgress(prog); setMyResults(res); setLoadedData(true);
+      });
+    }
+  }, [loadedData]);
+
+  const getProgressForPkg = (pkgId) => myProgress.find(p=>p.packageId===pkgId);
+  const getResultsForPkg = (pkgId) => myResults.filter(r=>r.packageId===pkgId);
+  const getBestScore = (pkgId) => { const r = getResultsForPkg(pkgId); return r.length ? Math.max(...r.map(x=>Math.round((x.correct/x.total)*100))) : null; };
+  const getAttemptCount = (pkgId) => getResultsForPkg(pkgId).length;
+
+  const subjects = [...new Set(packages.map(p=>p.subject).filter(Boolean))];
+
+  // Smart filtering
   const filtered = packages.filter(p => {
+    // Search
+    if (search) {
+      const q = search.toLowerCase();
+      if (!(p.name||'').toLowerCase().includes(q) && !(p.subject||'').toLowerCase().includes(q) && !(p.description||'').toLowerCase().includes(q) && !(p.yearLevel||'').toLowerCase().includes(q)) return false;
+    }
     if (filterSubject && p.subject !== filterSubject) return false;
-    if (filterYear && p.yearLevel !== filterYear) return false;
+    // Status filter
+    const prog = getProgressForPkg(p.id);
+    const results = getResultsForPkg(p.id);
+    if (filterStatus === 'new' && (prog || results.length > 0)) return false;
+    if (filterStatus === 'inprogress' && (!results.length || (prog && prog.completed))) return false;
+    if (filterStatus === 'completed' && (!prog || !prog.completed)) return false;
+    // Hide completed by default (unless specifically filtering for them)
+    if (filterStatus === 'all' && prog && prog.completed) return false;
     return true;
   });
 
-  const subjects = [...new Set(packages.map(p=>p.subject).filter(Boolean))];
-  const years = [...new Set(packages.map(p=>p.yearLevel).filter(Boolean))];
-
   const goHome = () => { setScreen('browse'); setActivePkg(null); setTestConfig(null); };
+
+  const markComplete = async (pkgId) => {
+    await DB.saveLearnerProgress(user.id, pkgId, { completed: true });
+    setMyProgress(prev => { const exists = prev.find(p=>p.packageId===pkgId); return exists ? prev.map(p=>p.packageId===pkgId?{...p,completed:true}:p) : [...prev,{packageId:pkgId,userId:user.id,completed:true}]; });
+  };
+
+  const markIncomplete = async (pkgId) => {
+    await DB.saveLearnerProgress(user.id, pkgId, { completed: false });
+    setMyProgress(prev => prev.map(p=>p.packageId===pkgId?{...p,completed:false}:p));
+  };
+
+  const recordAccess = async (pkg) => {
+    const prog = getProgressForPkg(pkg.id);
+    if (!prog) await DB.saveLearnerProgress(user.id, pkg.id, { firstAccessed: Date.now(), packageName: pkg.name });
+    setMyProgress(prev => { const exists = prev.find(p=>p.packageId===pkg.id); return exists ? prev : [...prev,{packageId:pkg.id,userId:user.id,firstAccessed:Date.now(),packageName:pkg.name}]; });
+  };
+
+  const submitFeedback = async (pkg) => {
+    if (!feedbackText.trim()) return;
+    await DB.saveFeedback({ userId: user.id, userName: user.name, userEmail: user.email, packageId: pkg.id, packageName: pkg.name, message: feedbackText, rating: feedbackRating });
+    setFeedbackText(''); setFeedbackRating(0);
+    alert('Feedback submitted! The publisher will be notified.');
+  };
+
+  // Overall stats
+  const totalAttempts = myResults.length;
+  const avgScore = totalAttempts ? Math.round(myResults.reduce((a,r)=>a+(r.correct/r.total)*100,0)/totalAttempts) : 0;
+  const coursesAccessed = myProgress.length;
+  const coursesCompleted = myProgress.filter(p=>p.completed).length;
 
   return (
     <div className="app">
       <div className="gradient-bg" />
       <nav className="nav">
-        {screen !== 'browse' ? (
+        {screen !== 'browse' && screen !== 'progress' ? (
           <button className="nav-btn" onClick={goHome}>← Back</button>
         ) : <div />}
         <div className="nav-logo">StudyFlow</div>
         <div className="nav-right">
           <span className="nav-role learner">Learner</span>
-          {onSwitchView && <button className="nav-btn" onClick={()=>onSwitchView(null)}>Switch Role</button>}
+          {onSwitchView && <button className="nav-btn" onClick={()=>onSwitchView(null)}>Switch</button>}
           <span className="nav-user">{user.name}</span>
           <button className="nav-btn" onClick={onLogout}>Logout</button>
         </div>
       </nav>
       <div className="main">
+        {/* Bottom tab bar for mobile */}
+        {(screen === 'browse' || screen === 'progress') && (
+          <div style={{display:'flex',borderBottom:'1px solid var(--border)',padding:'0 16px'}}>
+            <button className={`tab ${screen==='browse'?'active':''}`} onClick={()=>setScreen('browse')}>📚 Courses</button>
+            <button className={`tab ${screen==='progress'?'active':''}`} onClick={()=>setScreen('progress')}>📊 My Progress</button>
+          </div>
+        )}
+
         {screen === 'browse' && (
           <div className="page fade-in">
-            <div className="page-header">
-              <h1>📚 Study Library</h1>
-              <p>Choose a topic to start learning or take a test</p>
+            {/* Search bar */}
+            <div style={{marginBottom:12}}>
+              <input className="form-input" value={search} onChange={e=>setSearch(e.target.value)} placeholder="🔍 Search courses by name, subject, year level..." style={{fontSize:14}} />
             </div>
 
-            {/* Filters */}
-            {(subjects.length > 1 || years.length > 1) && (
-              <div style={{marginBottom:16}}>
-                <div className="filters">
-                  <span className={`filter-chip ${!filterSubject?'active':''}`} onClick={()=>setFilterSubject('')}>All Subjects</span>
-                  {subjects.map(s => <span key={s} className={`filter-chip ${filterSubject===s?'active':''}`} onClick={()=>setFilterSubject(filterSubject===s?'':s)}>{s}</span>)}
-                </div>
-                {years.length > 1 && (
-                  <div className="filters" style={{marginTop:6}}>
-                    <span className={`filter-chip ${!filterYear?'active':''}`} onClick={()=>setFilterYear('')}>All Years</span>
-                    {years.map(y => <span key={y} className={`filter-chip ${filterYear===y?'active':''}`} onClick={()=>setFilterYear(filterYear===y?'':y)}>{y}</span>)}
-                  </div>
-                )}
+            {/* Smart filters */}
+            <div className="filters" style={{marginBottom:12}}>
+              <span className={`filter-chip ${filterStatus==='all'?'active':''}`} onClick={()=>setFilterStatus('all')}>📋 Active</span>
+              <span className={`filter-chip ${filterStatus==='new'?'active':''}`} onClick={()=>setFilterStatus('new')}>🆕 New</span>
+              <span className={`filter-chip ${filterStatus==='inprogress'?'active':''}`} onClick={()=>setFilterStatus('inprogress')}>📖 In Progress</span>
+              <span className={`filter-chip ${filterStatus==='completed'?'active':''}`} onClick={()=>setFilterStatus('completed')}>✅ Completed</span>
+            </div>
+            {subjects.length > 1 && (
+              <div className="filters" style={{marginBottom:12}}>
+                <span className={`filter-chip ${!filterSubject?'active':''}`} onClick={()=>setFilterSubject('')}>All</span>
+                {subjects.map(s => <span key={s} className={`filter-chip ${filterSubject===s?'active':''}`} onClick={()=>setFilterSubject(filterSubject===s?'':s)}>{s}</span>)}
               </div>
             )}
 
+            {/* Quick stats bar */}
+            {totalAttempts > 0 && (
+              <div style={{display:'flex',gap:8,marginBottom:16,flexWrap:'wrap'}}>
+                <div style={{flex:1,minWidth:70,padding:'8px 12px',background:'var(--bg-card)',borderRadius:'var(--radius-xs)',border:'1px solid var(--border)',textAlign:'center'}}>
+                  <div style={{fontSize:18,fontWeight:800,color:'var(--primary-light)'}}>{totalAttempts}</div>
+                  <div style={{fontSize:10,color:'var(--text-muted)'}}>Tests</div>
+                </div>
+                <div style={{flex:1,minWidth:70,padding:'8px 12px',background:'var(--bg-card)',borderRadius:'var(--radius-xs)',border:'1px solid var(--border)',textAlign:'center'}}>
+                  <div style={{fontSize:18,fontWeight:800,color:avgScore>=70?'var(--success)':avgScore>=50?'var(--warning)':'var(--danger)'}}>{avgScore}%</div>
+                  <div style={{fontSize:10,color:'var(--text-muted)'}}>Avg Score</div>
+                </div>
+                <div style={{flex:1,minWidth:70,padding:'8px 12px',background:'var(--bg-card)',borderRadius:'var(--radius-xs)',border:'1px solid var(--border)',textAlign:'center'}}>
+                  <div style={{fontSize:18,fontWeight:800,color:'var(--accent)'}}>{coursesAccessed}</div>
+                  <div style={{fontSize:10,color:'var(--text-muted)'}}>Courses</div>
+                </div>
+              </div>
+            )}
+
+            {/* Course cards */}
             {filtered.length > 0 ? (
               <div className="card-grid">
-                {filtered.map((pkg,i) => (
-                  <div key={pkg.id} className="card browse-card fade-in" style={{animationDelay:`${i*.05}s`}}>
-                    <div className="browse-subject">{pkg.subject}</div>
-                    <div className="browse-title">{pkg.name}</div>
-                    <div className="browse-desc">{pkg.description}</div>
-                    <div className="pkg-meta-row">
-                      {pkg.yearLevel && <span className="pkg-meta-tag">{pkg.yearLevel}</span>}
-                      <span className="pkg-meta-tag">💡 {pkg.facts.length} facts</span>
-                      <span className="pkg-meta-tag">📂 {pkg.categories.length} topics</span>
-                    </div>
-                    <div style={{fontSize:11,color:'var(--text-muted)',marginBottom:10}}>By {pkg.authorName}</div>
-                    <div className="pkg-actions">
-                      {pkg.facts.length > 0 && (
-                        <button className="btn btn-primary btn-sm" onClick={()=>{setActivePkg(pkg);setScreen('learn');}}>⚡ Learn</button>
+                {filtered.map((pkg,i) => {
+                  const best = getBestScore(pkg.id);
+                  const attempts = getAttemptCount(pkg.id);
+                  const prog = getProgressForPkg(pkg.id);
+                  return (
+                    <div key={pkg.id} className="card browse-card fade-in" style={{animationDelay:`${i*.05}s`}}>
+                      <div className="browse-subject">{pkg.subject}</div>
+                      <div className="browse-title">{pkg.name}</div>
+                      <div className="browse-desc">{pkg.description}</div>
+                      <div className="pkg-meta-row">
+                        {pkg.yearLevel && <span className="pkg-meta-tag">{pkg.yearLevel}</span>}
+                        {best !== null && <span className="pkg-meta-tag" style={{background:best>=70?'rgba(0,184,148,.15)':best>=50?'rgba(253,203,110,.15)':'rgba(225,112,85,.15)',color:best>=70?'var(--success)':best>=50?'var(--warning)':'var(--danger)'}}>Best: {best}%</span>}
+                        {attempts > 0 && <span className="pkg-meta-tag">{attempts} test{attempts!==1?'s':''}</span>}
+                        {!prog && <span className="pkg-meta-tag" style={{background:'rgba(108,92,231,.15)',color:'var(--primary-light)'}}>🆕 New</span>}
+                      </div>
+                      <div style={{fontSize:11,color:'var(--text-muted)',marginBottom:10}}>By {pkg.authorName}</div>
+                      <div className="pkg-actions">
+                        {pkg.facts.length > 0 && <button className="btn btn-primary btn-sm" onClick={()=>{recordAccess(pkg);setActivePkg(pkg);setScreen('learn');}}>⚡ Learn</button>}
+                        <button className="btn btn-ghost btn-sm" onClick={()=>{
+                          if(pkg.facts.length===0){alert('No content yet');return;} recordAccess(pkg);setActivePkg(pkg);setScreen('test-setup');
+                        }}>📝 Test</button>
+                        <button className="btn btn-sm" style={{background:'none',color:'var(--text-muted)',border:'none',fontSize:11}} onClick={()=>{setActivePkg(pkg);setScreen('course-detail');}}>📊</button>
+                      </div>
+                      {prog && !prog.completed && attempts > 0 && (
+                        <button style={{background:'none',border:'none',color:'var(--text-muted)',fontSize:11,cursor:'pointer',marginTop:6,padding:0}} onClick={()=>markComplete(pkg.id)}>✓ Mark complete</button>
                       )}
-                      <button className="btn btn-ghost btn-sm" onClick={()=>{
-                        if (pkg.facts.length === 0) { alert('This package has no learning content yet. Check back later!'); return; }
-                        setActivePkg(pkg); setScreen('test-setup');
-                      }}>📝 Test Me</button>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             ) : (
               <div className="empty-state">
                 <div className="empty-icon">📖</div>
-                <h3>No packages available</h3>
-                <p>{packages.length>0 ? 'Try adjusting your filters' : 'No content has been published yet'}</p>
+                <h3>{search ? 'No matches' : filterStatus==='completed' ? 'No completed courses' : filterStatus==='new' ? 'No new courses' : 'No courses available'}</h3>
+                <p>{search ? 'Try different search terms' : 'Check back later for new content'}</p>
               </div>
             )}
+          </div>
+        )}
+
+        {/* MY PROGRESS screen */}
+        {screen === 'progress' && (
+          <div className="page fade-in">
+            <div className="page-header"><h1>📊 My Progress</h1><p>Your learning journey across all courses</p></div>
+
+            {/* Overall stats */}
+            <div style={{display:'flex',gap:10,marginBottom:20,flexWrap:'wrap'}}>
+              {[{n:totalAttempts,l:'Total Tests',c:'var(--primary-light)'},{n:avgScore+'%',l:'Avg Score',c:avgScore>=70?'var(--success)':'var(--warning)'},{n:coursesAccessed,l:'Courses Started',c:'var(--accent)'},{n:coursesCompleted,l:'Completed',c:'var(--success)'}].map((s,i)=>(
+                <div key={i} style={{flex:1,minWidth:80,padding:'14px',background:'var(--bg-card)',borderRadius:'var(--radius-sm)',border:'1px solid var(--border)',textAlign:'center'}}>
+                  <div style={{fontSize:24,fontWeight:800,color:s.c}}>{s.n}</div>
+                  <div style={{fontSize:11,color:'var(--text-muted)'}}>{s.l}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Per-course breakdown */}
+            <h3 style={{fontSize:15,fontWeight:700,marginBottom:10}}>Course Breakdown</h3>
+            {packages.map(pkg => {
+              const results = getResultsForPkg(pkg.id);
+              if (results.length === 0) return null;
+              const best = Math.max(...results.map(r=>Math.round((r.correct/r.total)*100)));
+              const latest = results[0] ? Math.round((results[0].correct/results[0].total)*100) : 0;
+              const prog = getProgressForPkg(pkg.id);
+              return (
+                <div key={pkg.id} className="card" style={{marginBottom:8,padding:12,cursor:'pointer'}} onClick={()=>{setActivePkg(pkg);setScreen('course-detail');}}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                    <div>
+                      <div style={{fontWeight:700,fontSize:14}}>{pkg.name}{prog?.completed && ' ✅'}</div>
+                      <div style={{fontSize:12,color:'var(--text-muted)'}}>{results.length} test{results.length!==1?'s':''} · Best: {best}% · Latest: {latest}%</div>
+                    </div>
+                    <div style={{width:50,height:50,borderRadius:'50%',border:`3px solid ${best>=70?'var(--success)':best>=50?'var(--warning)':'var(--danger)'}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,fontWeight:800}}>{best}%</div>
+                  </div>
+                </div>
+              );
+            }).filter(Boolean)}
+            {myResults.length === 0 && <div className="empty-state"><div className="empty-icon">📝</div><h3>No test results yet</h3><p>Take a test to see your progress</p></div>}
+          </div>
+        )}
+
+        {/* COURSE DETAIL screen */}
+        {screen === 'course-detail' && activePkg && (
+          <div className="page fade-in">
+            <button className="nav-btn" style={{marginBottom:12}} onClick={goHome}>← Back to courses</button>
+            <h2 style={{fontSize:20,fontWeight:800,marginBottom:4}}>{activePkg.name}</h2>
+            <p style={{fontSize:13,color:'var(--text-secondary)',marginBottom:16}}>{activePkg.subject} · {activePkg.yearLevel}</p>
+
+            {/* Actions */}
+            <div style={{display:'flex',gap:8,marginBottom:16}}>
+              <button className="btn btn-primary btn-sm" onClick={()=>{setScreen('learn');}}>⚡ Learn</button>
+              <button className="btn btn-ghost btn-sm" onClick={()=>{setScreen('test-setup');}}>📝 Test</button>
+              {getProgressForPkg(activePkg.id)?.completed
+                ? <button className="btn btn-sm btn-ghost" onClick={()=>markIncomplete(activePkg.id)}>↩ Reopen</button>
+                : getAttemptCount(activePkg.id) > 0 && <button className="btn btn-sm btn-ghost" onClick={()=>markComplete(activePkg.id)}>✓ Complete</button>
+              }
+            </div>
+
+            {/* Test history */}
+            <h3 style={{fontSize:15,fontWeight:700,marginBottom:10}}>📈 Test History</h3>
+            {getResultsForPkg(activePkg.id).length > 0 ? (
+              <>
+                {getResultsForPkg(activePkg.id).map((r,i) => (
+                  <div key={r.id||i} className="card" style={{marginBottom:6,padding:10}}>
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                      <div>
+                        <div style={{fontSize:13,fontWeight:600}}>{Math.round((r.correct/r.total)*100)}% — {r.correct}/{r.total} correct</div>
+                        <div style={{fontSize:11,color:'var(--text-muted)'}}>{r.timestamp ? new Date(r.timestamp).toLocaleString() : ''}{r.elapsed ? ` · ${Math.floor(r.elapsed/60)}m ${r.elapsed%60}s` : ''}</div>
+                      </div>
+                      <div style={{width:40,height:40,borderRadius:'50%',background:Math.round((r.correct/r.total)*100)>=70?'rgba(0,184,148,.15)':'rgba(225,112,85,.15)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:13,fontWeight:800,color:Math.round((r.correct/r.total)*100)>=70?'var(--success)':'var(--danger)'}}>{Math.round((r.correct/r.total)*100)}%</div>
+                    </div>
+                  </div>
+                ))}
+              </>
+            ) : <p style={{fontSize:13,color:'var(--text-muted)'}}>No tests taken yet for this course.</p>}
+
+            {/* Feedback section */}
+            <h3 style={{fontSize:15,fontWeight:700,margin:'20px 0 10px'}}>💬 Send Feedback to Publisher</h3>
+            <div style={{display:'flex',gap:4,marginBottom:8}}>
+              {[1,2,3,4,5].map(n => (
+                <button key={n} style={{background:'none',border:'none',fontSize:24,cursor:'pointer',opacity:n<=feedbackRating?.9:.3}} onClick={()=>setFeedbackRating(n)}>⭐</button>
+              ))}
+            </div>
+            <textarea className="form-textarea" value={feedbackText} onChange={e=>setFeedbackText(e.target.value)} placeholder="Share your thoughts on this course... What worked well? What could be improved?" style={{minHeight:60,marginBottom:8}} />
+            <button className="btn btn-primary btn-sm" onClick={()=>submitFeedback(activePkg)} disabled={!feedbackText.trim()}>📤 Send Feedback</button>
           </div>
         )}
 
@@ -2163,18 +2516,13 @@ function LearnerApp({ user, packages, onSwitchView, onLogout }) {
         )}
 
         {screen === 'test-setup' && activePkg && (
-          <TestSetup
-            pkg={activePkg}
-            onStart={(config) => { setTestConfig(config); setScreen('test'); }}
-          />
+          <TestSetup pkg={activePkg} onStart={(config) => { setTestConfig(config); setScreen('test'); }} />
         )}
 
         {screen === 'test' && activePkg && testConfig && (
-          <TestMode
-            pkg={activePkg}
-            config={testConfig}
-            onBack={goHome}
-          />
+          <TestMode pkg={activePkg} config={testConfig} user={user}
+            onTestComplete={(result) => { setMyResults(prev => [result, ...prev]); }}
+            onBack={goHome} />
         )}
       </div>
     </div>
@@ -2304,7 +2652,7 @@ function TestSetup({ pkg, onStart }) {
 // ============================================================
 // TEST MODE (Learner)
 // ============================================================
-function TestMode({ pkg, config, onBack }) {
+function TestMode({ pkg, config, user, onTestComplete, onBack }) {
   const [questions] = useState(() =>
     generateQuestions(pkg.facts, pkg.categories, config.count, config.categories.length>0?config.categories:null, pkg.testPatterns)
   );
@@ -2355,7 +2703,16 @@ function TestMode({ pkg, config, onBack }) {
 
   const retry = () => { setAnswer(null); setSubmitted(false); setIsCorrect(null); setRetrying(true); };
   const next = () => {
-    if(currentQ>=questions.length-1){setFinished(true);return;}
+    if(currentQ>=questions.length-1){
+      setFinished(true);
+      // Save test result to Firestore
+      const correct = results.filter(r=>r.correct).length + (isCorrect ? 1 : 0);
+      const total = questions.length;
+      const resultData = { userId: user?.id, userName: user?.name, userEmail: user?.email, packageId: pkg.id, packageName: pkg.name, score: Math.round((correct/total)*100), total, correct, elapsed };
+      if (firebaseConfigured && user) DB.saveTestResult(resultData);
+      if (onTestComplete) onTestComplete(resultData);
+      return;
+    }
     setCurrentQ(i=>i+1); setAnswer(null); setSubmitted(false); setIsCorrect(null); setRetrying(false);
   };
 
