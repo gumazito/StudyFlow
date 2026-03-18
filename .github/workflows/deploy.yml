@@ -1,0 +1,61 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate HTML
+        run: |
+          echo 'Checking index.html exists and is valid...'
+          test -f index.html || (echo 'ERROR: index.html not found' && exit 1)
+          grep -q 'StudyFlow' index.html || (echo 'ERROR: Not a StudyFlow file' && exit 1)
+          grep -q 'firebase' index.html || (echo 'ERROR: Firebase not configured' && exit 1)
+          echo 'Basic validation passed'
+      - name: Check for common errors
+        run: |
+          echo 'Checking for syntax issues...'
+          # Check matching script tags
+          OPEN=$(grep -c '<script' index.html)
+          CLOSE=$(grep -c '</script>' index.html)
+          if [ "$OPEN" != "$CLOSE" ]; then echo "ERROR: Mismatched script tags ($OPEN open, $CLOSE close)"; exit 1; fi
+          # Check matching style tags
+          OPEN=$(grep -c '<style' index.html)
+          CLOSE=$(grep -c '</style>' index.html)
+          if [ "$OPEN" != "$CLOSE" ]; then echo "ERROR: Mismatched style tags"; exit 1; fi
+          # Check file size (should be > 10KB for a real app)
+          SIZE=$(wc -c < index.html)
+          if [ "$SIZE" -lt 10000 ]; then echo "ERROR: File too small ($SIZE bytes) - likely incomplete"; exit 1; fi
+          echo "All checks passed (file size: $SIZE bytes)"
+
+  deploy:
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

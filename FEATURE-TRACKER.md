@@ -120,10 +120,10 @@
 ### DevOps
 - ✅ GitHub repo + GitHub Pages deployment
 - ✅ Firebase Hosting option documented
-- 📋 Staging environment with mirrored production data (future)
-- 📋 GitHub Actions CI/CD pipeline (future)
-- 📋 Automated test suite (future)
-- 📋 Branch protection rules (future)
+- ✅ Staging environment guide (STAGING-GUIDE.md with branch-based + local + Netlify options)
+- ✅ GitHub Actions CI/CD pipeline (deploy.yml — auto-deploys on push to main)
+- ✅ Automated test suite (test.yml — structural, Firebase, feature completeness, syntax checks)
+- ✅ Branch protection rules guide (BRANCH-PROTECTION.md with step-by-step setup)
 
 ### Publisher Collaboration
 - ✅ Course owner vs contributor roles (set in package editor)
@@ -139,7 +139,7 @@
 - ✅ Course templates (7 templates: blank, AI-researched, practice test prep, subject-specific)
 - ✅ Bulk student invite via email list + CSV export
 - ✅ New course announcements (in-app notification for learners)
-- 📋 Custom branding per publisher (future)
+- ✅ Custom branding per publisher (brand colour, icon, display name)
 - 💡 Video content support
 - 💡 Voice-based learning mode
 - 💡 AI-powered study plan generator

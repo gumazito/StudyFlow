@@ -2611,6 +2611,34 @@ function PackageEditor({ pkg, onSave, onCancel, userId }) {
             <textarea className="form-textarea" value={data.description} onChange={e=>update('description',e.target.value)} placeholder="Describe what this package covers..." />
           </div>
 
+          {/* Custom Branding */}
+          <div className="form-group">
+            <label className="form-label">Course Branding (optional)</label>
+            <div className="form-hint" style={{marginBottom:6}}>Customise how this course looks to learners</div>
+            <div className="form-row">
+              <div>
+                <label style={{fontSize:11,color:'var(--text-muted)'}}>Brand Colour</label>
+                <div style={{display:'flex',gap:6,marginTop:4}}>
+                  {['#6c5ce7','#00cec9','#e17055','#00b894','#fdcb6e','#fd79a8','#636e72'].map(c => (
+                    <div key={c} style={{width:28,height:28,borderRadius:'50%',background:c,cursor:'pointer',border:(data.brandColor||'#6c5ce7')===c?'3px solid white':'3px solid transparent'}} onClick={()=>update('brandColor',c)} />
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label style={{fontSize:11,color:'var(--text-muted)'}}>Course Icon</label>
+                <div style={{display:'flex',gap:4,marginTop:4,flexWrap:'wrap'}}>
+                  {['📚','🧠','🔬','📐','🌍','🎨','💻','🏃','✝️','🎵','📖','🧪'].map(e => (
+                    <button key={e} style={{fontSize:20,background:(data.brandIcon||'📚')===e?'var(--primary)':'var(--bg-card)',border:'1px solid var(--border)',borderRadius:6,width:36,height:36,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}} onClick={()=>update('brandIcon',e)}>{e}</button>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div style={{marginTop:8}}>
+              <label style={{fontSize:11,color:'var(--text-muted)'}}>Publisher Display Name (shown to learners)</label>
+              <input className="form-input" value={data.publisherDisplayName||''} onChange={e=>update('publisherDisplayName',e.target.value)} placeholder={data.authorName||'Your name'} style={{marginTop:4}} />
+            </div>
+          </div>
+
           {/* Course Collaboration */}
           <div className="form-group">
             <label className="form-label">Collaborators (optional)</label>
@@ -3215,8 +3243,8 @@ function LearnerApp({ user, packages, onSwitchView, onLogout }) {
                   const attempts = getAttemptCount(pkg.id);
                   const prog = getProgressForPkg(pkg.id);
                   return (
-                    <div key={pkg.id} className="card browse-card fade-in" style={{animationDelay:`${i*.05}s`}}>
-                      <div className="browse-subject">{pkg.subject}</div>
+                    <div key={pkg.id} className="card browse-card fade-in" style={{animationDelay:`${i*.05}s`,borderTop:pkg.brandColor?`3px solid ${pkg.brandColor}`:'none'}}>
+                      <div className="browse-subject" style={{color:pkg.brandColor||'var(--primary-light)'}}>{pkg.brandIcon||''} {pkg.subject}</div>
                       <div className="browse-title">{pkg.name}</div>
                       <div className="browse-desc">{pkg.description}</div>
                       <div className="pkg-meta-row">
@@ -3225,7 +3253,7 @@ function LearnerApp({ user, packages, onSwitchView, onLogout }) {
                         {attempts > 0 && <span className="pkg-meta-tag">{attempts} test{attempts!==1?'s':''}</span>}
                         {!prog && <span className="pkg-meta-tag" style={{background:'rgba(108,92,231,.15)',color:'var(--primary-light)'}}>🆕 New</span>}
                       </div>
-                      <div style={{fontSize:11,color:'var(--text-muted)',marginBottom:10}}>By {pkg.authorName}</div>
+                      <div style={{fontSize:11,color:'var(--text-muted)',marginBottom:10}}>By {pkg.publisherDisplayName || pkg.authorName}</div>
                       <div className="pkg-actions">
                         {pkg.facts.length > 0 && <button className="btn btn-primary btn-sm" onClick={()=>{recordAccess(pkg);setActivePkg(pkg);setScreen('learn');}}>⚡ Learn</button>}
                         <button className="btn btn-ghost btn-sm" onClick={()=>{

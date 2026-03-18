@@ -1,0 +1,83 @@
+name: Test Suite
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  structural-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test - All required components exist
+        run: |
+          echo '=== Component Tests ==='
+          PASS=0; FAIL=0
+          check() { if grep -q "$1" index.html; then echo "PASS: $2"; PASS=$((PASS+1)); else echo "FAIL: $2"; FAIL=$((FAIL+1)); fi; }
+          check 'function App()' 'App component exists'
+          check 'function AuthScreen' 'AuthScreen component exists'
+          check 'function AdminApp' 'AdminApp component exists'
+          check 'function AuthorApp' 'AuthorApp (Publisher) component exists'
+          check 'function LearnerApp' 'LearnerApp component exists'
+          check 'function MentorApp' 'MentorApp component exists'
+          check 'function MicroLearnMode' 'MicroLearnMode component exists'
+          check 'function TestSetup' 'TestSetup component exists'
+          check 'function TestMode' 'TestMode component exists'
+          check 'function ScoreScreen' 'ScoreScreen component exists'
+          check 'function PackageEditor' 'PackageEditor component exists'
+          echo "=== Results: $PASS passed, $FAIL failed ==="
+          [ $FAIL -eq 0 ] || exit 1
+
+      - name: Test - Firebase integration
+        run: |
+          echo '=== Firebase Tests ==='
+          PASS=0; FAIL=0
+          check() { if grep -q "$1" index.html; then echo "PASS: $2"; PASS=$((PASS+1)); else echo "FAIL: $2"; FAIL=$((FAIL+1)); fi; }
+          check 'firebase-app-compat' 'Firebase SDK loaded'
+          check 'firebase-auth-compat' 'Firebase Auth loaded'
+          check 'firebase-firestore-compat' 'Firebase Firestore loaded'
+          check 'FIREBASE_CONFIG' 'Firebase config present'
+          check 'signInWithEmailAndPassword' 'Email auth implemented'
+          check 'createUserWithEmailAndPassword' 'Signup implemented'
+          check 'sendPasswordResetEmail' 'Password reset implemented'
+          echo "=== Results: $PASS passed, $FAIL failed ==="
+          [ $FAIL -eq 0 ] || exit 1
+
+      - name: Test - Feature completeness
+        run: |
+          echo '=== Feature Tests ==='
+          PASS=0; FAIL=0
+          check() { if grep -q "$1" index.html; then echo "PASS: $2"; PASS=$((PASS+1)); else echo "FAIL: $2"; FAIL=$((FAIL+1)); fi; }
+          check 'SYSTEM_ADMIN_EMAIL' 'Admin role system'
+          check 'aiAutoResearch' 'AI auto-research'
+          check 'saveAiConfig' 'AI key management'
+          check 'generateQuestions' 'Question generation'
+          check 'XP_VALUES' 'Gamification XP system'
+          check 'BADGES' 'Badge system'
+          check 'sendFollowRequest' 'Social following'
+          check 'sendMentorRequest' 'Mentor system'
+          check 'saveFactConfidence' 'Spaced repetition'
+          check 'exportToCSV' 'CSV export'
+          check 'exportToPDF' 'PDF export'
+          check 'DEFAULT_TEMPLATES' 'Course templates'
+          check 'dobToYearLevel' 'Age-based year matching'
+          check 'saveRating' 'Course ratings'
+          check 'collaborators' 'Publisher collaboration'
+          check 'notifyLearners' 'Push notifications'
+          check 'Exam Prep' 'Practice test toggle'
+          echo "=== Results: $PASS passed, $FAIL failed ==="
+          [ $FAIL -eq 0 ] || exit 1
+
+      - name: Test - No broken syntax
+        run: |
+          echo '=== Syntax Tests ==='
+          # Check balanced braces (rough check)
+          OPEN=$(grep -o '{' index.html | wc -l)
+          CLOSE=$(grep -o '}' index.html | wc -l)
+          DIFF=$((OPEN - CLOSE))
+          if [ $DIFF -lt -5 ] || [ $DIFF -gt 5 ]; then
+            echo "WARNING: Brace imbalance (open=$OPEN close=$CLOSE diff=$DIFF)"
+          else
+            echo "PASS: Braces roughly balanced (diff=$DIFF)"
+          fi
+          echo 'Syntax tests complete'
