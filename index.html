@@ -345,6 +345,9 @@ if (firebaseConfigured) {
 // ============================================================
 // DATABASE HELPERS — save/load from Firestore (or memory fallback)
 // ============================================================
+// System admin email — this account automatically gets admin role
+const SYSTEM_ADMIN_EMAIL = 'courtenay@hollis.family';
+
 const DB = {
   async savePackage(pkg) {
     if (!fb_db) return;
@@ -365,6 +368,32 @@ const DB = {
   async deletePackage(id) { if (fb_db) await fb_db.collection('packages').doc(id).delete(); },
   async saveUser(uid, data) { if (fb_db) await fb_db.collection('users').doc(uid).set(data, { merge: true }); },
   async getUser(uid) { if (!fb_db) return null; const doc = await fb_db.collection('users').doc(uid).get(); return doc.exists ? doc.data() : null; },
+  async getAllUsers() {
+    if (!fb_db) return [];
+    const snap = await fb_db.collection('users').get();
+    return snap.docs.map(doc => ({ uid: doc.id, ...doc.data() }));
+  },
+  async updateUserRole(uid, roles, status) {
+    if (!fb_db) return;
+    const update = {};
+    if (roles !== undefined) update.roles = roles;
+    if (status !== undefined) update.status = status;
+    update.updatedAt = Date.now();
+    await fb_db.collection('users').doc(uid).set(update, { merge: true });
+  },
+  async notifyAdmin(event) {
+    // Store notification in Firestore for admin to see
+    if (!fb_db) return;
+    await fb_db.collection('admin_notifications').add({ ...event, createdAt: Date.now(), read: false });
+  },
+  async getNotifications() {
+    if (!fb_db) return [];
+    const snap = await fb_db.collection('admin_notifications').orderBy('createdAt', 'desc').limit(50).get();
+    return snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  },
+  async markNotificationRead(id) {
+    if (fb_db) await fb_db.collection('admin_notifications').doc(id).update({ read: true });
+  },
 };
 
 // ============================================================
@@ -1021,28 +1050,39 @@ A quadratic equation has the form ax² + bx + c = 0. The solutions can be found 
 // APP — Firebase auth with fallback to local mode
 // ============================================================
 function App() {
-  const [user, setUser] = useState(null); // { id, name, email, role }
+  const [user, setUser] = useState(null); // { id, name, email, roles:[], status, isAdmin }
   const [packages, setPackages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [authReady, setAuthReady] = useState(!firebaseConfigured);
+  const [activeView, setActiveView] = useState(null); // 'learner', 'author', 'admin'
 
   // Listen for Firebase auth state
   useEffect(() => {
     if (!firebaseConfigured) { setLoading(false); setPackages([createDemoPackage()]); return; }
     const unsub = fb_auth.onAuthStateChanged(async (fbUser) => {
       if (fbUser) {
-        const profile = await DB.getUser(fbUser.uid);
+        let profile = await DB.getUser(fbUser.uid);
         if (profile) {
-          setUser({ id: fbUser.uid, name: profile.name, email: fbUser.email, role: profile.role });
+          // Migration: convert old single-role to roles array
+          if (profile.role && !profile.roles) {
+            profile.roles = [profile.role];
+            profile.status = profile.status || 'approved';
+            await DB.saveUser(fbUser.uid, { roles: profile.roles, status: profile.status });
+          }
+          const isAdmin = fbUser.email === SYSTEM_ADMIN_EMAIL || (profile.roles || []).includes('admin');
+          // Auto-grant admin role to system admin email
+          if (fbUser.email === SYSTEM_ADMIN_EMAIL && !(profile.roles || []).includes('admin')) {
+            profile.roles = [...new Set([...(profile.roles || []), 'admin'])];
+            profile.status = 'approved';
+            await DB.saveUser(fbUser.uid, { roles: profile.roles, status: 'approved' });
+          }
+          setUser({ id: fbUser.uid, name: profile.name, email: fbUser.email,
+            roles: profile.roles || [profile.role || 'learner'], status: profile.status || 'approved', isAdmin });
         } else {
-          // User exists in auth but not in DB yet — shouldn't happen, but handle gracefully
-          setUser({ id: fbUser.uid, name: fbUser.email, email: fbUser.email, role: 'learner' });
+          setUser({ id: fbUser.uid, name: fbUser.email, email: fbUser.email, roles: ['learner'], status: 'pending', isAdmin: false });
         }
-      } else {
-        setUser(null);
-      }
-      setAuthReady(true);
-      setLoading(false);
+      } else { setUser(null); }
+      setAuthReady(true); setLoading(false);
     });
     return () => unsub();
   }, []);
@@ -1056,7 +1096,6 @@ function App() {
     });
   }, [user]);
 
-  // Save package helper
   const savePackage = (pkg) => {
     setPackages(prev => {
       const exists = prev.find(p=>p.id===pkg.id);
@@ -1065,23 +1104,81 @@ function App() {
       return updated;
     });
   };
-
-  const deletePackage = (id) => {
-    setPackages(prev => prev.filter(p=>p.id!==id));
-    if (firebaseConfigured) DB.deletePackage(id);
-  };
-
-  const handleLogout = () => {
-    if (firebaseConfigured) fb_auth.signOut();
-    else setUser(null);
-  };
+  const deletePackage = (id) => { setPackages(prev=>prev.filter(p=>p.id!==id)); if(firebaseConfigured) DB.deletePackage(id); };
+  const handleLogout = () => { setActiveView(null); if(firebaseConfigured) fb_auth.signOut(); else setUser(null); };
 
   if (loading) return <div className="app"><div className="gradient-bg"/><div className="processing"><div className="processing-spinner"/><h3>Loading StudyFlow...</h3></div></div>;
   if (!authReady || !user) return <AuthScreen onLogin={setUser} />;
 
-  return user.role === 'author'
-    ? <AuthorApp user={user} packages={packages} setPackages={setPackages} onSavePkg={savePackage} onDeletePkg={deletePackage} onLogout={handleLogout} />
-    : <LearnerApp user={user} packages={packages.filter(p=>p.status==='published')} onLogout={handleLogout} />;
+  // If account is pending approval, show waiting screen
+  if (user.status === 'pending' && !user.isAdmin) {
+    return (
+      <div className="app"><div className="gradient-bg"/>
+        <div className="login-screen">
+          <div className="login-box fade-in" style={{textAlign:'center'}}>
+            <div style={{fontSize:48,marginBottom:16}}>⏳</div>
+            <h2 style={{fontSize:20,fontWeight:800,marginBottom:8}}>Account Pending Approval</h2>
+            <p style={{color:'var(--text-secondary)',fontSize:14,marginBottom:20}}>Your account has been created and is waiting for admin approval. You'll be able to log in once approved.</p>
+            <p style={{color:'var(--text-muted)',fontSize:12,marginBottom:20}}>Signed up as: {user.email}</p>
+            <button className="btn btn-ghost" onClick={handleLogout}>Log Out</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  if (user.status === 'rejected') {
+    return (
+      <div className="app"><div className="gradient-bg"/>
+        <div className="login-screen">
+          <div className="login-box fade-in" style={{textAlign:'center'}}>
+            <div style={{fontSize:48,marginBottom:16}}>❌</div>
+            <h2 style={{fontSize:20,fontWeight:800,marginBottom:8}}>Account Not Approved</h2>
+            <p style={{color:'var(--text-secondary)',fontSize:14,marginBottom:20}}>Your account request was not approved. Please contact the administrator if you believe this is an error.</p>
+            <button className="btn btn-ghost" onClick={handleLogout}>Log Out</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Role-based view selection
+  const availableViews = [];
+  if (user.isAdmin) availableViews.push('admin');
+  if (user.roles.includes('author') || user.isAdmin) availableViews.push('author');
+  if (user.roles.includes('learner') || user.isAdmin) availableViews.push('learner');
+  // Auto-select if only one view, or show picker
+  const currentView = activeView || (availableViews.length === 1 ? availableViews[0] : null);
+
+  if (!currentView) {
+    return (
+      <div className="app"><div className="gradient-bg"/>
+        <nav className="nav"><div/><div className="nav-logo">StudyFlow</div>
+          <div className="nav-right"><span className="nav-user">{user.name}</span><button className="nav-btn" onClick={handleLogout}>Logout</button></div>
+        </nav>
+        <div className="main">
+          <div className="page fade-in" style={{maxWidth:500,margin:'0 auto',paddingTop:40,textAlign:'center'}}>
+            <h1 style={{fontSize:24,fontWeight:800,marginBottom:8}}>Welcome, {user.name}!</h1>
+            <p style={{color:'var(--text-secondary)',marginBottom:24}}>Choose how you'd like to use StudyFlow:</p>
+            <div style={{display:'flex',flexDirection:'column',gap:12}}>
+              {availableViews.includes('admin') && (
+                <button className="btn btn-lg" style={{background:'var(--danger)',color:'white'}} onClick={()=>setActiveView('admin')}>🛡️ Administrator</button>
+              )}
+              {availableViews.includes('author') && (
+                <button className="btn btn-lg btn-primary" onClick={()=>setActiveView('author')}>✏️ Publisher</button>
+              )}
+              {availableViews.includes('learner') && (
+                <button className="btn btn-lg" style={{background:'linear-gradient(135deg,var(--accent),var(--success))',color:'white'}} onClick={()=>setActiveView('learner')}>🎓 Learner</button>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (currentView === 'admin') return <AdminApp user={user} onSwitchView={setActiveView} onLogout={handleLogout} />;
+  if (currentView === 'author') return <AuthorApp user={user} packages={packages} setPackages={setPackages} onSavePkg={savePackage} onDeletePkg={deletePackage} onSwitchView={availableViews.length>1?setActiveView:null} onLogout={handleLogout} />;
+  return <LearnerApp user={user} packages={packages.filter(p=>p.status==='published')} onSwitchView={availableViews.length>1?setActiveView:null} onLogout={handleLogout} />;
 }
 
 // ============================================================
@@ -1092,10 +1189,14 @@ function AuthScreen({ onLogin }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
-  const [role, setRole] = useState('learner');
+  const [selectedRoles, setSelectedRoles] = useState(['learner']); // multi-select roles
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [busy, setBusy] = useState(false);
+
+  const toggleRole = (r) => {
+    setSelectedRoles(prev => prev.includes(r) ? prev.filter(x=>x!==r) : [...prev, r]);
+  };
 
   const resetForm = () => { setError(''); setSuccess(''); setPassword(''); };
 
@@ -1104,8 +1205,7 @@ function AuthScreen({ onLogin }) {
     setBusy(true); setError('');
     if (firebaseConfigured) {
       try {
-        const cred = await fb_auth.signInWithEmailAndPassword(email, password);
-        // onAuthStateChanged will handle the rest
+        await fb_auth.signInWithEmailAndPassword(email, password);
       } catch(e) {
         setError(e.code === 'auth/user-not-found' ? 'No account found with that email' :
                  e.code === 'auth/wrong-password' ? 'Incorrect password' :
@@ -1114,8 +1214,7 @@ function AuthScreen({ onLogin }) {
                  'Login failed: ' + e.message);
       }
     } else {
-      // Fallback: local mode (no Firebase)
-      onLogin({ id: genId(), name: email.split('@')[0], email, role: 'author' });
+      onLogin({ id: genId(), name: email.split('@')[0], email, roles: ['author','learner','admin'], status: 'approved', isAdmin: true });
     }
     setBusy(false);
   };
@@ -1124,19 +1223,32 @@ function AuthScreen({ onLogin }) {
     if (!name.trim()) { setError('Please enter your name'); return; }
     if (!email || !password) { setError('Please enter email and password'); return; }
     if (password.length < 6) { setError('Password must be at least 6 characters'); return; }
+    if (selectedRoles.length === 0) { setError('Please select at least one role'); return; }
     setBusy(true); setError('');
     if (firebaseConfigured) {
       try {
+        const isAdmin = email.toLowerCase() === SYSTEM_ADMIN_EMAIL;
+        const roles = isAdmin ? [...new Set([...selectedRoles, 'admin'])] : selectedRoles;
+        const status = isAdmin ? 'approved' : 'pending'; // Non-admins start as pending
+
         const cred = await fb_auth.createUserWithEmailAndPassword(email, password);
-        await DB.saveUser(cred.user.uid, { name: name.trim(), email, role, createdAt: Date.now() });
-        // onAuthStateChanged will handle the rest
+        await DB.saveUser(cred.user.uid, { name: name.trim(), email, roles, status, createdAt: Date.now() });
+
+        // Notify admin of new signup (unless this IS the admin)
+        if (!isAdmin) {
+          await DB.notifyAdmin({
+            type: 'new_signup', userName: name.trim(), userEmail: email,
+            userRoles: roles, userId: cred.user.uid,
+            message: `New account signup: ${name.trim()} (${email}) requesting ${roles.join(', ')} access`
+          });
+        }
       } catch(e) {
         setError(e.code === 'auth/email-already-in-use' ? 'An account with that email already exists' :
                  e.code === 'auth/weak-password' ? 'Password is too weak' :
                  'Signup failed: ' + e.message);
       }
     } else {
-      onLogin({ id: genId(), name: name.trim(), email, role });
+      onLogin({ id: genId(), name: name.trim(), email, roles: selectedRoles, status: 'approved', isAdmin: true });
     }
     setBusy(false);
   };
@@ -1211,19 +1323,20 @@ function AuthScreen({ onLogin }) {
                 <input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="At least 6 characters" />
               </div>
               <div className="login-field">
-                <label>I am a...</label>
+                <label>I want to... (select all that apply)</label>
                 <div className="role-selector">
-                  <div className={`role-option ${role==='learner'?'selected':''}`} onClick={()=>setRole('learner')}>
+                  <div className={`role-option ${selectedRoles.includes('learner')?'selected':''}`} onClick={()=>toggleRole('learner')}>
                     <div className="role-icon">🎓</div>
-                    <div className="role-name">Student</div>
+                    <div className="role-name">Learner</div>
                     <div className="role-desc">Take courses & tests</div>
                   </div>
-                  <div className={`role-option ${role==='author'?'selected':''}`} onClick={()=>setRole('author')}>
+                  <div className={`role-option ${selectedRoles.includes('author')?'selected':''}`} onClick={()=>toggleRole('author')}>
                     <div className="role-icon">✏️</div>
-                    <div className="role-name">Author / Teacher</div>
+                    <div className="role-name">Publisher</div>
                     <div className="role-desc">Create & publish courses</div>
                   </div>
                 </div>
+                <div className="form-hint" style={{marginTop:6}}>You can select both. An admin will review and approve your account.</div>
               </div>
               <button className="login-btn learner-btn" onClick={handleSignup} disabled={busy}>
                 {busy ? 'Creating account...' : '🚀 Create Account'}
@@ -1268,9 +1381,179 @@ function AuthScreen({ onLogin }) {
 }
 
 // ============================================================
-// AUTHOR APP
+// ADMIN APP — User management, approvals, notifications
 // ============================================================
-function AuthorApp({ user, packages, setPackages, onSavePkg, onDeletePkg, onLogout }) {
+function AdminApp({ user, onSwitchView, onLogout }) {
+  const [users, setUsers] = useState([]);
+  const [notifications, setNotifications] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState('users'); // users, notifications
+
+  useEffect(() => { loadData(); }, []);
+
+  const loadData = async () => {
+    setLoading(true);
+    const [allUsers, notifs] = await Promise.all([DB.getAllUsers(), DB.getNotifications()]);
+    setUsers(allUsers);
+    setNotifications(notifs);
+    setLoading(false);
+  };
+
+  const approveUser = async (uid) => {
+    await DB.updateUserRole(uid, undefined, 'approved');
+    setUsers(prev => prev.map(u => u.uid === uid ? { ...u, status: 'approved' } : u));
+  };
+
+  const rejectUser = async (uid) => {
+    await DB.updateUserRole(uid, undefined, 'rejected');
+    setUsers(prev => prev.map(u => u.uid === uid ? { ...u, status: 'rejected' } : u));
+  };
+
+  const toggleUserRole = async (uid, role) => {
+    const u = users.find(x => x.uid === uid);
+    if (!u) return;
+    const currentRoles = u.roles || [];
+    const newRoles = currentRoles.includes(role) ? currentRoles.filter(r => r !== role) : [...currentRoles, role];
+    if (newRoles.length === 0) { alert('User must have at least one role'); return; }
+    await DB.updateUserRole(uid, newRoles, undefined);
+    setUsers(prev => prev.map(x => x.uid === uid ? { ...x, roles: newRoles } : x));
+  };
+
+  const pendingUsers = users.filter(u => u.status === 'pending');
+  const approvedUsers = users.filter(u => u.status === 'approved' || !u.status);
+  const rejectedUsers = users.filter(u => u.status === 'rejected');
+  const unreadNotifs = notifications.filter(n => !n.read).length;
+
+  return (
+    <div className="app">
+      <div className="gradient-bg" />
+      <nav className="nav">
+        <div className="nav-logo">StudyFlow</div>
+        <div className="nav-right">
+          <span className="nav-role" style={{background:'rgba(225,112,85,.15)',color:'var(--danger)'}}>Admin</span>
+          {onSwitchView && <button className="nav-btn" onClick={()=>onSwitchView(null)}>Switch Role</button>}
+          <span className="nav-user">{user.name}</span>
+          <button className="nav-btn" onClick={onLogout}>Logout</button>
+        </div>
+      </nav>
+      <div className="main">
+        <div className="page fade-in">
+          <div className="page-header">
+            <h1>🛡️ Admin Dashboard</h1>
+            <p>Manage users, approvals, and system settings</p>
+          </div>
+
+          <div className="tabs">
+            <button className={`tab ${tab==='users'?'active':''}`} onClick={()=>setTab('users')}>
+              👥 Users ({users.length}){pendingUsers.length > 0 && <span style={{background:'var(--danger)',color:'white',borderRadius:10,padding:'1px 6px',fontSize:10,marginLeft:6}}>{pendingUsers.length}</span>}
+            </button>
+            <button className={`tab ${tab==='notifications'?'active':''}`} onClick={()=>setTab('notifications')}>
+              🔔 Notifications{unreadNotifs > 0 && <span style={{background:'var(--danger)',color:'white',borderRadius:10,padding:'1px 6px',fontSize:10,marginLeft:6}}>{unreadNotifs}</span>}
+            </button>
+          </div>
+
+          {loading ? (
+            <div style={{textAlign:'center',padding:40}}><div className="processing-spinner" style={{margin:'0 auto 16px'}}/><p>Loading...</p></div>
+          ) : tab === 'users' ? (
+            <div className="fade-in">
+              {/* Pending approvals */}
+              {pendingUsers.length > 0 && (
+                <div style={{marginBottom:24}}>
+                  <h3 style={{fontSize:15,fontWeight:700,marginBottom:10,color:'var(--warning)'}}>⏳ Pending Approval ({pendingUsers.length})</h3>
+                  {pendingUsers.map(u => (
+                    <div key={u.uid} className="card" style={{marginBottom:8,padding:14,borderColor:'rgba(253,203,110,.3)'}}>
+                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8}}>
+                        <div>
+                          <div style={{fontWeight:700,fontSize:14}}>{u.name || 'Unknown'}</div>
+                          <div style={{fontSize:12,color:'var(--text-muted)'}}>{u.email}</div>
+                          <div style={{fontSize:11,color:'var(--text-muted)',marginTop:2}}>
+                            Requested: {(u.roles||[]).join(', ')} · {u.createdAt ? new Date(u.createdAt).toLocaleDateString() : 'Unknown date'}
+                          </div>
+                        </div>
+                        <div style={{display:'flex',gap:6}}>
+                          <button className="btn btn-success btn-sm" onClick={()=>approveUser(u.uid)}>✓ Approve</button>
+                          <button className="btn btn-danger btn-sm" onClick={()=>rejectUser(u.uid)}>✗ Reject</button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Approved users */}
+              <h3 style={{fontSize:15,fontWeight:700,marginBottom:10}}>✅ Active Users ({approvedUsers.length})</h3>
+              {approvedUsers.map(u => (
+                <div key={u.uid} className="card" style={{marginBottom:6,padding:12}}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8}}>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontWeight:700,fontSize:14,display:'flex',alignItems:'center',gap:6}}>
+                        {u.name || 'Unknown'}
+                        {u.email === SYSTEM_ADMIN_EMAIL && <span style={{fontSize:10,background:'rgba(225,112,85,.15)',color:'var(--danger)',padding:'1px 6px',borderRadius:10}}>System Admin</span>}
+                      </div>
+                      <div style={{fontSize:12,color:'var(--text-muted)'}}>{u.email}</div>
+                    </div>
+                    <div style={{display:'flex',gap:4,flexWrap:'wrap'}}>
+                      {['learner','author','admin'].map(role => (
+                        <button key={role} className="btn btn-sm"
+                          style={{
+                            background: (u.roles||[]).includes(role) ? (role==='admin'?'var(--danger)':role==='author'?'var(--primary)':'var(--accent)') : 'var(--bg)',
+                            color: (u.roles||[]).includes(role) ? 'white' : 'var(--text-muted)',
+                            border: `1px solid ${(u.roles||[]).includes(role) ? 'transparent' : 'var(--border)'}`,
+                            fontSize:11, padding:'4px 10px'
+                          }}
+                          onClick={()=>toggleUserRole(u.uid, role)}>
+                          {role==='learner'?'🎓 Learner':role==='author'?'✏️ Publisher':role==='admin'?'🛡️ Admin':''}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ))}
+
+              {/* Rejected users */}
+              {rejectedUsers.length > 0 && (
+                <div style={{marginTop:20}}>
+                  <h3 style={{fontSize:15,fontWeight:700,marginBottom:10,color:'var(--text-muted)'}}>❌ Rejected ({rejectedUsers.length})</h3>
+                  {rejectedUsers.map(u => (
+                    <div key={u.uid} className="card" style={{marginBottom:6,padding:12,opacity:.6}}>
+                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                        <div>
+                          <div style={{fontWeight:600,fontSize:13}}>{u.name || 'Unknown'} — {u.email}</div>
+                        </div>
+                        <button className="btn btn-success btn-sm" onClick={()=>approveUser(u.uid)}>Reinstate</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="fade-in">
+              {notifications.length === 0 ? (
+                <div className="empty-state"><div className="empty-icon">🔔</div><h3>No notifications</h3><p>You'll see signup requests and system events here</p></div>
+              ) : notifications.map(n => (
+                <div key={n.id} className="card" style={{marginBottom:6,padding:12,opacity:n.read?.7:1,borderColor:!n.read?'rgba(108,92,231,.3)':'var(--border)'}}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8}}>
+                    <div>
+                      <div style={{fontSize:13,fontWeight:n.read?400:600}}>{n.message}</div>
+                      <div style={{fontSize:11,color:'var(--text-muted)',marginTop:2}}>{n.createdAt ? new Date(n.createdAt).toLocaleString() : ''}</div>
+                    </div>
+                    {!n.read && <button className="btn btn-sm btn-ghost" onClick={async()=>{await DB.markNotificationRead(n.id);setNotifications(prev=>prev.map(x=>x.id===n.id?{...x,read:true}:x));}}>Mark read</button>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// AUTHOR APP (now called Publisher internally)
+// ============================================================
+function AuthorApp({ user, packages, setPackages, onSavePkg, onDeletePkg, onSwitchView, onLogout }) {
   const [screen, setScreen] = useState('dashboard'); // dashboard, editor
   const [editingPkg, setEditingPkg] = useState(null);
   const [processing, setProcessing] = useState(false);
@@ -1330,7 +1613,8 @@ function AuthorApp({ user, packages, setPackages, onSavePkg, onDeletePkg, onLogo
         ) : <div />}
         <div className="nav-logo">StudyFlow</div>
         <div className="nav-right">
-          <span className="nav-role author">Author</span>
+          <span className="nav-role author">Publisher</span>
+          {onSwitchView && <button className="nav-btn" onClick={()=>onSwitchView(null)}>Switch Role</button>}
           <span className="nav-user">{user.name}</span>
           <button className="nav-btn" onClick={onLogout}>Logout</button>
         </div>
@@ -1341,7 +1625,7 @@ function AuthorApp({ user, packages, setPackages, onSavePkg, onDeletePkg, onLogo
             <div className="page-header" style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',flexWrap:'wrap',gap:12}}>
               <div>
                 <h1>My Learning Packages</h1>
-                <p>Create and manage study content for students</p>
+                <p>Create and manage study content for learners</p>
               </div>
               <button className="btn btn-primary" onClick={createNew}>+ New Package</button>
             </div>
@@ -1782,7 +2066,7 @@ function PackageEditor({ pkg, onSave, onCancel }) {
 // ============================================================
 // LEARNER APP
 // ============================================================
-function LearnerApp({ user, packages, onLogout }) {
+function LearnerApp({ user, packages, onSwitchView, onLogout }) {
   const [screen, setScreen] = useState('browse'); // browse, learn, test-setup, test
   const [activePkg, setActivePkg] = useState(null);
   const [testConfig, setTestConfig] = useState(null);
@@ -1809,7 +2093,8 @@ function LearnerApp({ user, packages, onLogout }) {
         ) : <div />}
         <div className="nav-logo">StudyFlow</div>
         <div className="nav-right">
-          <span className="nav-role learner">Student</span>
+          <span className="nav-role learner">Learner</span>
+          {onSwitchView && <button className="nav-btn" onClick={()=>onSwitchView(null)}>Switch Role</button>}
           <span className="nav-user">{user.name}</span>
           <button className="nav-btn" onClick={onLogout}>Logout</button>
         </div>
