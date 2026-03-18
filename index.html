@@ -348,6 +348,74 @@ if (firebaseConfigured) {
 // System admin email — this account automatically gets admin role
 const SYSTEM_ADMIN_EMAIL = 'courtenay@hollis.family';
 
+// ============================================================
+// AI AUTO-RESEARCH — calls Claude or ChatGPT API
+// ============================================================
+async function aiAutoResearch(subject, yearLevel, packageName, testPatterns, apiKey, apiProvider) {
+  if (!apiKey) return { facts: [], categories: [], note: 'No AI API key configured' };
+
+  const topics = testPatterns?.topicsCovered?.length > 0
+    ? `The practice test covers these topics: ${testPatterns.topicsCovered.join(', ')}.`
+    : '';
+
+  const prompt = `You are an expert ${subject || 'education'} teacher creating study material for Australian high school students (${yearLevel || 'secondary level'}).
+
+Generate 15-20 key facts/concepts that a student needs to know for this topic: "${packageName || subject}".
+${topics}
+
+For EACH fact, provide:
+1. A clear, concise statement (1-2 sentences) that teaches one concept
+2. A detailed explanation (1-2 sentences) expanding on the concept
+3. A category name for grouping related facts
+
+Format your response EXACTLY as JSON array:
+[{"text": "fact statement", "detail": "explanation", "category": "Category Name"}, ...]
+
+Only output the JSON array, nothing else.`;
+
+  try {
+    let responseText = '';
+
+    if (apiProvider === 'anthropic') {
+      // Claude API
+      const resp = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+        body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 4000, messages: [{ role: 'user', content: prompt }] })
+      });
+      if (!resp.ok) { const err = await resp.text(); throw new Error(`Claude API error: ${resp.status} - ${err}`); }
+      const data = await resp.json();
+      responseText = data.content?.[0]?.text || '';
+    } else {
+      // OpenAI API
+      const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+        body: JSON.stringify({ model: 'gpt-4o-mini', messages: [{ role: 'user', content: prompt }], max_tokens: 4000 })
+      });
+      if (!resp.ok) { const err = await resp.text(); throw new Error(`OpenAI API error: ${resp.status} - ${err}`); }
+      const data = await resp.json();
+      responseText = data.choices?.[0]?.message?.content || '';
+    }
+
+    // Parse JSON from response
+    const jsonMatch = responseText.match(/\[[\s\S]*\]/);
+    if (!jsonMatch) throw new Error('AI response did not contain valid JSON array');
+
+    const parsed = JSON.parse(jsonMatch[0]);
+    const facts = parsed.map(f => ({
+      id: genId(), text: f.text || '', detail: f.detail || '', category: f.category || subject || 'General',
+      difficulty: (f.text || '').length > 100 ? 'hard' : 'medium', aiGenerated: true
+    })).filter(f => f.text.length > 10);
+
+    const categories = [...new Set(facts.map(f => f.category))];
+    return { facts, categories, generated: true, note: `AI generated ${facts.length} facts using ${apiProvider === 'anthropic' ? 'Claude' : 'ChatGPT'}` };
+  } catch (err) {
+    console.error('AI auto-research error:', err);
+    return { facts: [], categories: [], note: `AI error: ${err.message}. Falling back to built-in content.`, error: true };
+  }
+}
+
 const DB = {
   async savePackage(pkg) {
     if (!fb_db) return;
@@ -393,6 +461,20 @@ const DB = {
   },
   async markNotificationRead(id) {
     if (fb_db) await fb_db.collection('admin_notifications').doc(id).update({ read: true });
+  },
+  // --- AI API key management (stored per-user in Firestore) ---
+  async saveAiConfig(userId, config) {
+    // config: { provider: 'anthropic'|'openai', apiKey: '...' }
+    if (!fb_db) return;
+    await fb_db.collection('ai_config').doc(userId).set({ ...config, updatedAt: Date.now() });
+  },
+  async getAiConfig(userId) {
+    if (!fb_db) return null;
+    const doc = await fb_db.collection('ai_config').doc(userId).get();
+    return doc.exists ? doc.data() : null;
+  },
+  async deleteAiConfig(userId) {
+    if (fb_db) await fb_db.collection('ai_config').doc(userId).delete();
   },
   // --- Test results & progress ---
   async saveTestResult(result) {
@@ -608,9 +690,20 @@ function extractTestPatterns(rawText) {
 // Types: MCQ (70%), True/False (15%), Select All That Apply (15%)
 // NO fill-in-blank, NO written answers
 // ============================================================
-function generateQuestions(facts, categories, count=10, filterCats=null, testPatterns=null) {
+function generateQuestions(facts, categories, count=10, filterCats=null, testPatterns=null, scope='all') {
   let pool = [...facts];
   if (filterCats && filterCats.length>0) pool = pool.filter(f=>filterCats.includes(f.category));
+
+  // If scope is 'practice', narrow pool to only facts that match practice test topics
+  if (scope === 'practice' && testPatterns && testPatterns.topicsCovered.length > 0) {
+    const practiceTopics = testPatterns.topicsCovered.map(t => t.toLowerCase());
+    const practicePool = pool.filter(f => {
+      const fText = (f.text + ' ' + f.category + ' ' + (f.detail||'')).toLowerCase();
+      return practiceTopics.some(t => fText.includes(t));
+    });
+    if (practicePool.length >= 3) pool = practicePool;
+  }
+
   if (pool.length<3) pool = [...facts];
 
   const selected = pickRandom(pool, Math.min(count*2, pool.length));
@@ -1846,7 +1939,7 @@ function AuthorApp({ user, packages, setPackages, onSavePkg, onDeletePkg, onSwit
         )}
 
         {screen === 'editor' && editingPkg && (
-          <PackageEditor pkg={editingPkg} onSave={savePkg} onCancel={()=>{setScreen('dashboard');setEditingPkg(null);}} />
+          <PackageEditor pkg={editingPkg} onSave={savePkg} onCancel={()=>{setScreen('dashboard');setEditingPkg(null);}} userId={user.id} />
         )}
       </div>
       {processing && <div className="processing"><div className="processing-spinner" /><h3>Processing...</h3></div>}
@@ -1857,12 +1950,27 @@ function AuthorApp({ user, packages, setPackages, onSavePkg, onDeletePkg, onSwit
 // ============================================================
 // PACKAGE EDITOR (Author)
 // ============================================================
-function PackageEditor({ pkg, onSave, onCancel }) {
+function PackageEditor({ pkg, onSave, onCancel, userId }) {
   const [data, setData] = useState({...pkg});
   const [processing, setProcessing] = useState(false);
   const [activeTab, setActiveTab] = useState('details');
   const [otherSubject, setOtherSubject] = useState(SUBJECTS.includes(pkg.subject) ? '' : pkg.subject);
   const fileRef = useRef();
+  // AI config
+  const [aiConfig, setAiConfig] = useState(null); // { provider, apiKey }
+  const [aiKeyInput, setAiKeyInput] = useState('');
+  const [aiProvider, setAiProvider] = useState('anthropic');
+  const [showAiSetup, setShowAiSetup] = useState(false);
+  const [aiConfigLoaded, setAiConfigLoaded] = useState(false);
+  // Fact editing
+  const [editingFact, setEditingFact] = useState(null); // {index, text, detail, category}
+
+  // Load AI config on mount
+  useEffect(() => {
+    if (userId && firebaseConfigured && !aiConfigLoaded) {
+      DB.getAiConfig(userId).then(cfg => { setAiConfig(cfg); setAiConfigLoaded(true); if(cfg){setAiProvider(cfg.provider);} });
+    }
+  }, [userId, aiConfigLoaded]);
 
   const update = (key, val) => setData(d=>({...d,[key]:val}));
 
@@ -1908,30 +2016,60 @@ function PackageEditor({ pkg, onSave, onCancel }) {
     setData(d => ({...d, content:newContent, facts, categories, testPatterns}));
   };
 
-  const runAutoResearch = () => {
+  const runAutoResearch = async () => {
     if (!data.subject && !data.name && (!data.testPatterns || data.testPatterns.topicsCovered.length === 0)) {
       alert('Please set a package name/subject, or upload a practice test first so we know what to research.'); return;
     }
     setProcessing(true);
-    setTimeout(() => {
-      // PASS the test patterns so the generator can use them to drive content
-      const result = generateAutoResearchContent(data.subject, data.yearLevel, data.name, data.testPatterns);
 
-      // Merge with any existing facts (don't duplicate)
-      const existingTexts = new Set(data.facts.map(f=>f.text));
-      const newFacts = result.facts.filter(f=>!existingTexts.has(f.text));
-      const allFacts = [...data.facts, ...newFacts];
-      const allCats = [...new Set([...data.categories, ...result.categories])];
+    let result;
+    // Use real AI if API key is configured
+    if (aiConfig && aiConfig.apiKey) {
+      result = await aiAutoResearch(data.subject, data.yearLevel, data.name, data.testPatterns, aiConfig.apiKey, aiConfig.provider);
+      // If AI failed, fall back to built-in
+      if (result.error || result.facts.length === 0) {
+        const fallback = generateAutoResearchContent(data.subject, data.yearLevel, data.name, data.testPatterns);
+        result = { ...fallback, note: (result.note || '') + ' Fell back to built-in content.' };
+      }
+    } else {
+      // No AI key — use built-in knowledge bank
+      result = generateAutoResearchContent(data.subject, data.yearLevel, data.name, data.testPatterns);
+    }
 
-      setData(d => ({
-        ...d,
-        facts: allFacts,
-        categories: allCats,
-        autoResearchGenerated: true,
-        autoResearchNote: result.note || 'Auto-generated curriculum content'
-      }));
-      setProcessing(false);
-    }, 1500);
+    // Merge with existing facts
+    const existingTexts = new Set(data.facts.map(f=>f.text));
+    const newFacts = result.facts.filter(f=>!existingTexts.has(f.text));
+    const allFacts = [...data.facts, ...newFacts];
+    const allCats = [...new Set([...data.categories, ...result.categories])];
+
+    setData(d => ({
+      ...d, facts: allFacts, categories: allCats,
+      autoResearchGenerated: true, autoResearchNote: result.note || 'Content generated'
+    }));
+    setProcessing(false);
+  };
+
+  // Save/remove AI API key
+  const saveAiKey = async () => {
+    if (!aiKeyInput.trim()) return;
+    const config = { provider: aiProvider, apiKey: aiKeyInput.trim() };
+    if (userId && firebaseConfigured) await DB.saveAiConfig(userId, config);
+    setAiConfig(config);
+    setShowAiSetup(false);
+    setAiKeyInput('');
+  };
+  const removeAiKey = async () => {
+    if (userId && firebaseConfigured) await DB.deleteAiConfig(userId);
+    setAiConfig(null);
+  };
+
+  // Edit/delete individual facts
+  const updateFact = (index, updated) => {
+    setData(d => ({ ...d, facts: d.facts.map((f,i) => i===index ? {...f,...updated} : f) }));
+    setEditingFact(null);
+  };
+  const deleteFact = (index) => {
+    setData(d => ({ ...d, facts: d.facts.filter((_,i) => i!==index) }));
   };
 
   const save = () => {
@@ -2123,31 +2261,118 @@ function PackageEditor({ pkg, onSave, onCancel }) {
             {practiceContent.length === 0 && <p style={{fontSize:12,color:'var(--text-muted)',textAlign:'center',padding:8}}>No practice tests uploaded — tests will use dynamically generated question formats. Upload practice tests to guide question style.</p>}
           </div>
 
-          {/* Auto-Research Toggle */}
+          {/* Auto-Research Toggle + AI Setup */}
           <div className="card" style={{marginBottom:16,padding:14,borderColor: data.autoResearch ? 'rgba(108,92,231,.3)' : 'var(--border)', background: data.autoResearch ? 'rgba(108,92,231,.04)' : 'var(--bg-card)'}}>
             <div className="form-toggle" onClick={()=>update('autoResearch',!data.autoResearch)}>
               <div className={`toggle-track ${data.autoResearch?'on':''}`}><div className="toggle-thumb"/></div>
               <div>
                 <div className="toggle-label" style={{fontSize:14,fontWeight:700}}>🔍 Auto-Research Mode</div>
-                <div className="toggle-desc">When enabled, saving this package will automatically find and add additional learning content based on your subject, year level, and any uploaded practice tests</div>
+                <div className="toggle-desc">Uses AI to generate learning content from your subject, year level, and practice tests</div>
               </div>
             </div>
+
             {data.autoResearch && (
-              <div style={{marginTop:10,padding:10,background:'rgba(108,92,231,.06)',borderRadius:'var(--radius-xs)',fontSize:12,color:'var(--primary-light)'}}>
-                {data.content.length === 0
-                  ? '✨ No content uploaded yet — Auto-Research will generate all learning material when you save.'
-                  : data.content.some(c=>c.type===CONTENT_TYPES.PRACTICE_TEST) && !data.content.some(c=>c.type===CONTENT_TYPES.RESEARCH)
-                    ? '✨ Practice tests detected — Auto-Research will generate learning material guided by your practice test topics when you save.'
-                    : '✨ Auto-Research will supplement your existing content with additional material when you save.'}
-                {(!data.subject || !data.yearLevel) && (
-                  <span style={{display:'block',color:'var(--warning)',marginTop:4}}>⚠️ Set Subject and Year Level in the Details tab for best results</span>
+              <div style={{marginTop:10}}>
+                {/* AI API Key Status */}
+                <div style={{padding:10,background:'rgba(108,92,231,.06)',borderRadius:'var(--radius-xs)',marginBottom:8}}>
+                  {aiConfig && aiConfig.apiKey ? (
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                      <div>
+                        <div style={{fontSize:12,color:'var(--success)',fontWeight:600}}>✅ {aiConfig.provider === 'anthropic' ? 'Claude' : 'ChatGPT'} API connected</div>
+                        <div style={{fontSize:11,color:'var(--text-muted)'}}>Key: ...{aiConfig.apiKey.slice(-8)}</div>
+                      </div>
+                      <div style={{display:'flex',gap:4}}>
+                        <button className="btn btn-sm btn-ghost" onClick={()=>{setShowAiSetup(true);setAiKeyInput(aiConfig.apiKey);setAiProvider(aiConfig.provider);}}>Update</button>
+                        <button className="btn btn-sm btn-danger" onClick={removeAiKey}>Remove</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div>
+                      <div style={{fontSize:12,color:'var(--warning)',fontWeight:600,marginBottom:4}}>⚠️ No AI API key configured</div>
+                      <div style={{fontSize:11,color:'var(--text-muted)',marginBottom:8}}>Without an API key, auto-research uses a limited built-in knowledge bank. Add a Claude or ChatGPT key for real AI-generated content.</div>
+                      <button className="btn btn-primary btn-sm" onClick={()=>setShowAiSetup(true)}>🔑 Set Up AI Key</button>
+                    </div>
+                  )}
+                </div>
+
+                {/* AI Key Setup Form */}
+                {showAiSetup && (
+                  <div className="card fade-in" style={{padding:12,marginBottom:8,background:'var(--bg)',borderColor:'var(--primary)'}}>
+                    <h4 style={{fontSize:13,fontWeight:700,marginBottom:8}}>🔑 AI API Key Setup</h4>
+                    <div style={{marginBottom:8}}>
+                      <label className="form-label">AI Provider</label>
+                      <div style={{display:'flex',gap:6}}>
+                        <button className={`filter-chip ${aiProvider==='anthropic'?'active':''}`} onClick={()=>setAiProvider('anthropic')}>Claude (Anthropic)</button>
+                        <button className={`filter-chip ${aiProvider==='openai'?'active':''}`} onClick={()=>setAiProvider('openai')}>ChatGPT (OpenAI)</button>
+                      </div>
+                    </div>
+                    <div style={{marginBottom:8}}>
+                      <label className="form-label">API Key</label>
+                      <input className="form-input" type="password" value={aiKeyInput} onChange={e=>setAiKeyInput(e.target.value)}
+                        placeholder={aiProvider==='anthropic' ? 'sk-ant-api03-...' : 'sk-proj-...'} />
+                      <div className="form-hint">
+                        {aiProvider==='anthropic'
+                          ? 'Get your key from console.anthropic.com → API Keys'
+                          : 'Get your key from platform.openai.com → API Keys'}
+                        . Your key is stored securely in your account and never shared.
+                      </div>
+                    </div>
+                    <div style={{display:'flex',gap:6}}>
+                      <button className="btn btn-primary btn-sm" onClick={saveAiKey} disabled={!aiKeyInput.trim()}>💾 Save Key</button>
+                      <button className="btn btn-ghost btn-sm" onClick={()=>{setShowAiSetup(false);setAiKeyInput('');}}>Cancel</button>
+                    </div>
+                  </div>
                 )}
+
+                {/* Status message */}
+                <div style={{fontSize:12,color:'var(--primary-light)'}}>
+                  {data.content.length === 0
+                    ? '✨ Auto-Research will generate learning material when you save.'
+                    : data.content.some(c=>c.type===CONTENT_TYPES.PRACTICE_TEST) && !data.content.some(c=>c.type===CONTENT_TYPES.RESEARCH)
+                      ? '✨ Practice tests will guide AI to generate relevant learning content on save.'
+                      : '✨ AI will supplement your existing content with additional material on save.'}
+                </div>
               </div>
             )}
             {data.autoResearchNote && (
               <div style={{marginTop:8,fontSize:11,color:'var(--accent)',fontStyle:'italic'}}>ℹ️ {data.autoResearchNote}</div>
             )}
           </div>
+
+          {/* Editable Facts List */}
+          {data.facts.length > 0 && (
+            <div className="card" style={{marginBottom:16,padding:14}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
+                <h4 style={{fontSize:14,fontWeight:700}}>📝 Facts ({data.facts.length})</h4>
+                <span style={{fontSize:11,color:'var(--text-muted)'}}>Click to edit, ✕ to delete</span>
+              </div>
+              <div style={{maxHeight:300,overflowY:'auto'}}>
+                {data.facts.map((f,i) => (
+                  <div key={f.id||i} style={{padding:'8px 10px',borderBottom:'1px solid var(--border)',display:'flex',gap:8,alignItems:'flex-start'}}>
+                    {editingFact?.index === i ? (
+                      <div style={{flex:1}}>
+                        <input className="form-input" style={{marginBottom:4,fontSize:12}} value={editingFact.text} onChange={e=>setEditingFact({...editingFact,text:e.target.value})} />
+                        <input className="form-input" style={{marginBottom:4,fontSize:12}} value={editingFact.detail} onChange={e=>setEditingFact({...editingFact,detail:e.target.value})} placeholder="Detail/explanation..." />
+                        <div style={{display:'flex',gap:4}}>
+                          <input className="form-input" style={{flex:1,fontSize:12}} value={editingFact.category} onChange={e=>setEditingFact({...editingFact,category:e.target.value})} placeholder="Category" />
+                          <button className="btn btn-primary btn-sm" onClick={()=>updateFact(i,{text:editingFact.text,detail:editingFact.detail,category:editingFact.category})}>✓</button>
+                          <button className="btn btn-ghost btn-sm" onClick={()=>setEditingFact(null)}>✕</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <div style={{flex:1,cursor:'pointer',minWidth:0}} onClick={()=>setEditingFact({index:i,text:f.text,detail:f.detail||'',category:f.category||''})}>
+                          <div style={{fontSize:12,fontWeight:500,lineHeight:1.4}}>{f.text}</div>
+                          <div style={{fontSize:10,color:'var(--text-muted)',marginTop:2}}>{f.category}{f.aiGenerated ? ' · 🤖 AI' : ''}</div>
+                        </div>
+                        <button style={{background:'none',border:'none',color:'var(--text-muted)',cursor:'pointer',fontSize:12,padding:'2px 4px',flexShrink:0}} onClick={()=>deleteFact(i)}>✕</button>
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Stats summary */}
           {(data.facts.length > 0 || data.testPatterns) && (
@@ -2607,20 +2832,40 @@ function MicroLearnMode({ facts, categories, onBack }) {
 function TestSetup({ pkg, onStart }) {
   const [selectedCats, setSelectedCats] = useState([]);
   const [qCount, setQCount] = useState(10);
+  const [testScope, setTestScope] = useState('all'); // 'all' or 'practice' (practice-test-style only)
 
   const toggleCat = (cat) => setSelectedCats(p=>p.includes(cat)?p.filter(c=>c!==cat):[...p,cat]);
+  const hasPracticeTests = pkg.testPatterns && pkg.testPatterns.sampleQuestions.length > 0;
 
   return (
     <div className="page fade-in" style={{maxWidth:600,margin:'0 auto'}}>
       <div style={{textAlign:'center',marginBottom:20}}>
         <h2 style={{fontSize:20,fontWeight:800}}>📝 Test Setup</h2>
         <p style={{fontSize:13,color:'var(--text-secondary)'}}>{pkg.name}</p>
-        {pkg.testPatterns && (
-          <p style={{fontSize:11,color:'var(--accent)',marginTop:4}}>
-            ✨ Test style informed by {pkg.testPatterns.sampleQuestions.length} practice questions
-          </p>
-        )}
       </div>
+
+      {/* Test scope toggle — only show if practice tests exist */}
+      {hasPracticeTests && (
+        <div style={{marginBottom:16}}>
+          <h3 style={{fontSize:14,fontWeight:600,marginBottom:8}}>Test Style</h3>
+          <div style={{display:'flex',gap:8}}>
+            <div className={`card ${testScope==='all'?'':''}` } style={{flex:1,padding:12,cursor:'pointer',textAlign:'center',
+              borderColor:testScope==='all'?'var(--primary)':'var(--border)',background:testScope==='all'?'rgba(108,92,231,.08)':'var(--bg-card)'}}
+              onClick={()=>setTestScope('all')}>
+              <div style={{fontSize:20,marginBottom:4}}>📚</div>
+              <div style={{fontSize:13,fontWeight:700}}>Full Course</div>
+              <div style={{fontSize:11,color:'var(--text-muted)'}}>Questions from all learning material</div>
+            </div>
+            <div className={`card`} style={{flex:1,padding:12,cursor:'pointer',textAlign:'center',
+              borderColor:testScope==='practice'?'var(--accent)':'var(--border)',background:testScope==='practice'?'rgba(0,206,201,.08)':'var(--bg-card)'}}
+              onClick={()=>setTestScope('practice')}>
+              <div style={{fontSize:20,marginBottom:4}}>🎯</div>
+              <div style={{fontSize:13,fontWeight:700}}>Exam Prep</div>
+              <div style={{fontSize:11,color:'var(--text-muted)'}}>Questions matching practice test style & topics</div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {pkg.categories.length > 1 && (
         <div style={{marginBottom:16}}>
@@ -2642,7 +2887,7 @@ function TestSetup({ pkg, onStart }) {
         </div>
       </div>
 
-      <button className="btn btn-primary btn-lg" onClick={()=>onStart({categories:selectedCats,count:qCount})}>
+      <button className="btn btn-primary btn-lg" onClick={()=>onStart({categories:selectedCats,count:qCount,scope:testScope})}>
         Start Test →
       </button>
     </div>
@@ -2654,7 +2899,7 @@ function TestSetup({ pkg, onStart }) {
 // ============================================================
 function TestMode({ pkg, config, user, onTestComplete, onBack }) {
   const [questions] = useState(() =>
-    generateQuestions(pkg.facts, pkg.categories, config.count, config.categories.length>0?config.categories:null, pkg.testPatterns)
+    generateQuestions(pkg.facts, pkg.categories, config.count, config.categories.length>0?config.categories:null, pkg.testPatterns, config.scope||'all')
   );
   const [currentQ, setCurrentQ] = useState(0);
   const [answer, setAnswer] = useState(null);
