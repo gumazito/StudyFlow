@@ -620,7 +620,99 @@ const DB = {
   async markCheerRead(id) {
     if (fb_db) await fb_db.collection('cheers').doc(id).update({ read:true });
   },
+  // --- Spaced repetition ---
+  async saveFactConfidence(userId, packageId, factId, confidence) {
+    // confidence: 0-1 (0=forgot, 1=perfect recall), nextReview: timestamp
+    if (!fb_db) return;
+    const interval = confidence >= 0.8 ? 7 : confidence >= 0.5 ? 3 : 1; // days until next review
+    await fb_db.collection('spaced_rep').doc(`${userId}_${factId}`).set({
+      userId, packageId, factId, confidence, lastReviewed: Date.now(),
+      nextReview: Date.now() + interval * 86400000, reviewCount: firebase.firestore.FieldValue.increment(1)
+    }, { merge: true });
+  },
+  async getSpacedRepData(userId, packageId) {
+    if (!fb_db) return [];
+    const snap = packageId
+      ? await fb_db.collection('spaced_rep').where('userId','==',userId).where('packageId','==',packageId).get()
+      : await fb_db.collection('spaced_rep').where('userId','==',userId).get();
+    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  },
+  // --- Course templates ---
+  async saveTemplate(template) {
+    if (!fb_db) return;
+    await fb_db.collection('templates').doc(template.id).set(template);
+  },
+  async getTemplates() {
+    if (!fb_db) return [];
+    const snap = await fb_db.collection('templates').get();
+    return snap.docs.map(d => d.data());
+  },
+  async deleteTemplate(id) { if (fb_db) await fb_db.collection('templates').doc(id).delete(); },
 };
+
+// ============================================================
+// EXPORT UTILITIES — CSV and basic PDF generation
+// ============================================================
+function exportToCSV(data, filename) {
+  if (!data.length) return;
+  const headers = Object.keys(data[0]);
+  const csv = [headers.join(','), ...data.map(row => headers.map(h => {
+    const val = String(row[h] || '').replace(/"/g, '""');
+    return val.includes(',') || val.includes('"') || val.includes('\n') ? `"${val}"` : val;
+  }).join(','))].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+}
+
+function exportToPDF(title, rows, filename) {
+  // Simple HTML-to-print PDF approach
+  const win = window.open('', '_blank');
+  win.document.write(`<html><head><title>${title}</title><style>
+    body{font-family:Arial,sans-serif;padding:20px;color:#333}
+    h1{font-size:18px;margin-bottom:10px}
+    table{width:100%;border-collapse:collapse;font-size:12px}
+    th,td{border:1px solid #ddd;padding:6px 8px;text-align:left}
+    th{background:#f5f5f5;font-weight:bold}
+    .score-high{color:#00b894} .score-mid{color:#fdcb6e} .score-low{color:#e17055}
+    @media print{body{padding:0}}
+  </style></head><body><h1>${title}</h1><p>Generated: ${new Date().toLocaleString()}</p>`);
+  if (rows.length > 0) {
+    const headers = Object.keys(rows[0]);
+    win.document.write('<table><tr>' + headers.map(h => `<th>${h}</th>`).join('') + '</tr>');
+    rows.forEach(row => { win.document.write('<tr>' + headers.map(h => `<td>${row[h]||''}</td>`).join('') + '</tr>'); });
+    win.document.write('</table>');
+  }
+  win.document.write('</body></html>');
+  win.document.close();
+  setTimeout(() => win.print(), 500);
+}
+
+// ============================================================
+// COURSE TEMPLATES
+// ============================================================
+const DEFAULT_TEMPLATES = [
+  { id: 'blank', name: 'Blank Course', icon: '📄', subject: '', yearLevel: '', description: '', autoResearch: false },
+  { id: 'auto-research', name: 'AI-Researched Course', icon: '🤖', subject: '', yearLevel: '', description: '', autoResearch: true },
+  { id: 'practice-test', name: 'Practice Test Prep', icon: '📝', subject: '', yearLevel: '', description: 'Upload a practice test and let AI generate learning material to prepare students.', autoResearch: true },
+  { id: 'maths-yr7', name: 'Year 7 Maths', icon: '📐', subject: 'Mathematics', yearLevel: 'Year 7', description: 'Year 7 Mathematics fundamentals', autoResearch: true },
+  { id: 'maths-yr8', name: 'Year 8 Maths', icon: '📐', subject: 'Mathematics', yearLevel: 'Year 8', description: 'Year 8 Mathematics fundamentals', autoResearch: true },
+  { id: 'science-yr7', name: 'Year 7 Science', icon: '🔬', subject: 'Science', yearLevel: 'Year 7', description: 'Year 7 Science fundamentals', autoResearch: true },
+  { id: 'english-yr8', name: 'Year 8 English', icon: '📖', subject: 'English', yearLevel: 'Year 8', description: 'Year 8 English fundamentals', autoResearch: true },
+];
+
+// ============================================================
+// PUSH NOTIFICATION HELPERS (in-app notifications stored in Firestore)
+// ============================================================
+async function notifyLearners(packageName, packageId) {
+  if (!fb_db) return;
+  await fb_db.collection('announcements').add({
+    type: 'new_course', packageId, packageName,
+    message: `New course published: ${packageName}`,
+    createdAt: Date.now(), read: []
+  });
+}
 
 // ============================================================
 // GAMIFICATION ENGINE
@@ -2009,23 +2101,29 @@ function AuthorApp({ user, packages, setPackages, onSavePkg, onDeletePkg, onSwit
   const [analyticsPkg, setAnalyticsPkg] = useState(null);
   const [allFeedback, setAllFeedback] = useState([]);
 
+  const isOwnerOf = (p) => p.authorId === user.id || p.authorId === 'demo-author';
+  const isCollaboratorOf = (p) => (p.collaborators||[]).some(c => c.email === user.email);
+  const getMyRole = (p) => isOwnerOf(p) ? 'owner' : isCollaboratorOf(p) ? (p.collaborators||[]).find(c=>c.email===user.email)?.role||'contributor' : null;
+
   const myPackages = packages.filter(p => {
-    const isMine = p.authorId === user.id || p.authorId === 'demo-author';
-    if (!isMine) return false;
+    const canAccess = isOwnerOf(p) || isCollaboratorOf(p);
+    if (!canAccess) return false;
     if (search) { const q=search.toLowerCase(); return (p.name||'').toLowerCase().includes(q)||(p.subject||'').toLowerCase().includes(q)||(p.yearLevel||'').toLowerCase().includes(q); }
     return true;
   });
 
-  const createNew = () => {
+  const createNew = (template) => {
+    const t = template || {};
     const newPkg = {
-      id: genId(), name: '', subject: '', yearLevel: '', description: '',
-      status: 'draft', autoResearch: false, authorId: user.id, authorName: user.name,
+      id: genId(), name: t.name===undefined ? '' : (t.name||''), subject: t.subject||'', yearLevel: t.yearLevel||'', description: t.description||'',
+      status: 'draft', autoResearch: t.autoResearch||false, authorId: user.id, authorName: user.name,
       createdAt: Date.now(), updatedAt: Date.now(),
       content: [], facts: [], categories: [], testPatterns: null
     };
     setEditingPkg(newPkg);
     setScreen('editor');
   };
+  const [showTemplates, setShowTemplates] = useState(false);
 
   const editPkg = (pkg) => { setEditingPkg({...pkg}); setScreen('editor'); };
 
@@ -2058,6 +2156,10 @@ function AuthorApp({ user, packages, setPackages, onSavePkg, onDeletePkg, onSwit
       updated = {...pkg, status:'draft', updatedAt:Date.now()};
     }
     onSavePkg(updated);
+    // Notify learners about new course
+    if (updated.status === 'published' && pkg.status !== 'published') {
+      notifyLearners(updated.name, updated.id);
+    }
   };
 
   return (
@@ -2083,7 +2185,7 @@ function AuthorApp({ user, packages, setPackages, onSavePkg, onDeletePkg, onSwit
                 <h1>My Learning Packages</h1>
                 <p>Create and manage study content for learners</p>
               </div>
-              <button className="btn btn-primary" onClick={createNew}>+ New Package</button>
+              <button className="btn btn-primary" onClick={()=>setShowTemplates(true)}>+ New Package</button>
             </div>
             {/* Search + tabs */}
             <input className="form-input" value={search} onChange={e=>setSearch(e.target.value)} placeholder="🔍 Search your packages..." style={{marginBottom:12,fontSize:14}} />
@@ -2123,7 +2225,8 @@ function AuthorApp({ user, packages, setPackages, onSavePkg, onDeletePkg, onSwit
                         style={{background: pkg.status==='published'?'var(--warning)':'var(--success)', color: pkg.status==='published'?'#000':'#fff'}}>
                         {pkg.status==='published' ? '⏸ Unpublish' : '🚀 Publish'}
                       </button>
-                      <button className="btn btn-danger btn-sm" onClick={(e)=>{e.stopPropagation();deletePkg(pkg.id);}}>🗑</button>
+                      {isOwnerOf(pkg) && <button className="btn btn-danger btn-sm" onClick={(e)=>{e.stopPropagation();deletePkg(pkg.id);}}>🗑</button>}
+                      {isCollaboratorOf(pkg) && !isOwnerOf(pkg) && <span style={{fontSize:10,color:'var(--text-muted)',padding:'4px 8px'}}>Contributor</span>}
                       <button className="btn btn-sm" style={{background:'none',color:'var(--accent)',border:'1px solid var(--accent)',fontSize:11}} onClick={(e)=>{
                         e.stopPropagation(); setAnalyticsPkg(pkg); setScreen('analytics');
                         Promise.all([DB.getTestResultsForPackage(pkg.id), DB.getFeedbackForPackage(pkg.id), DB.getProgressForPackage(pkg.id)]).then(([res,fb,prog]) => {
@@ -2148,8 +2251,18 @@ function AuthorApp({ user, packages, setPackages, onSavePkg, onDeletePkg, onSwit
         {screen === 'analytics' && (
           <div className="page fade-in">
             <button className="nav-btn" style={{marginBottom:12}} onClick={()=>{setScreen('dashboard');setAnalyticsPkg(null);}}>← Back to packages</button>
-            <h1 style={{fontSize:22,fontWeight:800,marginBottom:4}}>📊 {analyticsPkg ? analyticsPkg.name : 'All Courses'} Analytics</h1>
-            <p style={{fontSize:13,color:'var(--text-secondary)',marginBottom:16}}>{analyticsPkg ? 'Detailed performance for this course' : 'Overview across all your published courses'}</p>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',flexWrap:'wrap',gap:8}}>
+              <div>
+                <h1 style={{fontSize:22,fontWeight:800,marginBottom:4}}>📊 {analyticsPkg ? analyticsPkg.name : 'All Courses'} Analytics</h1>
+                <p style={{fontSize:13,color:'var(--text-secondary)'}}>{ analyticsPkg ? 'Detailed performance' : 'Overview across all courses'}</p>
+              </div>
+              {analyticsData && analyticsData.length > 0 && (
+                <div style={{display:'flex',gap:6}}>
+                  <button className="btn btn-ghost btn-sm" onClick={()=>exportToCSV(analyticsData.map(r=>({Student:r.userName||r.userEmail,Course:r.packageName,Score:r.score+'%',Correct:r.correct+'/'+r.total,Date:r.timestamp?new Date(r.timestamp).toLocaleDateString():''})), 'studyflow-results.csv')}>📥 CSV</button>
+                  <button className="btn btn-ghost btn-sm" onClick={()=>exportToPDF('StudyFlow Test Results', analyticsData.map(r=>({Student:r.userName||r.userEmail,Course:r.packageName,Score:r.score+'%',Correct:r.correct+'/'+r.total,Date:r.timestamp?new Date(r.timestamp).toLocaleDateString():''})), 'studyflow-results.pdf')}>📄 PDF</button>
+                </div>
+              )}
+            </div>
 
             {analyticsData === null ? (
               <div style={{textAlign:'center',padding:40}}><div className="processing-spinner" style={{margin:'0 auto 12px'}}/><p>Loading analytics...</p></div>
@@ -2234,6 +2347,53 @@ function AuthorApp({ user, packages, setPackages, onSavePkg, onDeletePkg, onSwit
                 )}
               </>
             )}
+          </div>
+        )}
+
+        {/* Template picker overlay */}
+        {showTemplates && (
+          <div className="overlay" onClick={()=>setShowTemplates(false)}>
+            <div className="modal" onClick={e=>e.stopPropagation()}>
+              <div className="modal-header"><h2>Create New Package</h2><button className="modal-close" onClick={()=>setShowTemplates(false)}>✕</button></div>
+              <p style={{fontSize:13,color:'var(--text-secondary)',marginBottom:16}}>Start from a template or create from scratch:</p>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+                <div className="card" style={{cursor:'pointer',textAlign:'center',padding:16}} onClick={()=>{setShowTemplates(false);createNew({name:''})}}>
+                  <div style={{fontSize:28}}>📄</div>
+                  <div style={{fontSize:13,fontWeight:700,marginTop:4}}>Blank</div>
+                  <div style={{fontSize:10,color:'var(--text-muted)'}}>Start from scratch</div>
+                </div>
+                {DEFAULT_TEMPLATES.filter(t=>t.id!=='blank').map(t => (
+                  <div key={t.id} className="card" style={{cursor:'pointer',textAlign:'center',padding:16}} onClick={()=>{setShowTemplates(false);createNew(t);}}>
+                    <div style={{fontSize:28}}>{t.icon}</div>
+                    <div style={{fontSize:13,fontWeight:700,marginTop:4}}>{t.name}</div>
+                    <div style={{fontSize:10,color:'var(--text-muted)'}}>{t.description?.slice(0,40)||t.subject||'Template'}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Bulk invite section */}
+              <div style={{marginTop:20,borderTop:'1px solid var(--border)',paddingTop:16}}>
+                <h3 style={{fontSize:14,fontWeight:700,marginBottom:8}}>📧 Bulk Invite Students</h3>
+                <p style={{fontSize:12,color:'var(--text-muted)',marginBottom:8}}>Paste emails (one per line or comma-separated) to generate invite links:</p>
+                <textarea className="form-textarea" id="bulk-invite" placeholder="student1@email.com&#10;student2@email.com&#10;student3@email.com" style={{minHeight:60,fontSize:12}} />
+                <button className="btn btn-ghost btn-sm" style={{marginTop:6}} onClick={()=>{
+                  const el = document.getElementById('bulk-invite');
+                  const emails = el.value.split(/[,\n]/).map(e=>e.trim()).filter(e=>e.includes('@'));
+                  if (emails.length===0) { alert('No valid emails found'); return; }
+                  const link = window.location.href.split('?')[0];
+                  const text = `You're invited to StudyFlow!\n\nSign up here: ${link}\n\nCreate an account as a Student to access learning courses.\n\nInvited emails:\n${emails.join('\n')}`;
+                  navigator.clipboard.writeText(text).then(()=>alert(`Invite text copied for ${emails.length} students! Paste it into an email.`)).catch(()=>{
+                    prompt('Copy this invite text:', text);
+                  });
+                }}>📋 Copy Invite Text</button>
+                <button className="btn btn-ghost btn-sm" style={{marginTop:6,marginLeft:6}} onClick={()=>{
+                  const el = document.getElementById('bulk-invite');
+                  const emails = el.value.split(/[,\n]/).map(e=>e.trim()).filter(e=>e.includes('@'));
+                  if (emails.length===0) return;
+                  exportToCSV(emails.map(e=>({email:e,role:'learner',invite_link:window.location.href.split('?')[0]})), 'studyflow-invites.csv');
+                }}>📥 Export as CSV</button>
+              </div>
+            </div>
           </div>
         )}
 
@@ -2942,6 +3102,17 @@ function LearnerApp({ user, packages, onSwitchView, onLogout }) {
           </div>
         )}
 
+        {/* New course announcements */}
+        {packages.some(p => {
+          const prog = myProgress.find(pr=>pr.packageId===p.id);
+          const daysOld = (Date.now() - (p.createdAt||0)) / 86400000;
+          return daysOld < 7 && !prog; // New in last 7 days and not accessed
+        }) && (screen === 'browse') && (
+          <div style={{padding:'8px 16px',background:'rgba(0,206,201,.08)',borderBottom:'1px solid rgba(0,206,201,.2)'}}>
+            <div style={{fontSize:12,color:'var(--accent)'}}>🆕 New courses available! Check them out below.</div>
+          </div>
+        )}
+
         {/* Cheers popup */}
         {cheers.length > 0 && (
           <div style={{padding:'8px 16px',background:'rgba(253,203,110,.1)',borderBottom:'1px solid rgba(253,203,110,.2)'}}>
@@ -3313,7 +3484,7 @@ function LearnerApp({ user, packages, onSwitchView, onLogout }) {
         )}
 
         {screen === 'learn' && activePkg && (
-          <MicroLearnMode facts={activePkg.facts} categories={activePkg.categories} onBack={goHome} />
+          <MicroLearnMode facts={activePkg.facts} categories={activePkg.categories} onBack={goHome} user={user} packageId={activePkg.id} />
         )}
 
         {screen === 'test-setup' && activePkg && (
@@ -3343,15 +3514,46 @@ function LearnerApp({ user, packages, onSwitchView, onLogout }) {
 // ============================================================
 // MICRO LEARN (Learner) — only uses research facts
 // ============================================================
-function MicroLearnMode({ facts, categories, onBack }) {
+function MicroLearnMode({ facts, categories, onBack, user, packageId }) {
   const [viewMode, setViewMode] = useState('swipe');
   const [currentIndex, setCurrentIndex] = useState(0);
   const [flipped, setFlipped] = useState(false);
   const [shuffledFacts] = useState(() => shuffle(facts));
+  const [spacedRepMode, setSpacedRepMode] = useState(false);
+  const [dueForReview, setDueForReview] = useState([]);
 
-  const progress = ((currentIndex+1)/shuffledFacts.length)*100;
-  const next = () => { if(currentIndex<shuffledFacts.length-1){setFlipped(false);setTimeout(()=>setCurrentIndex(i=>i+1),100);} };
+  // Load spaced rep data to prioritize cards due for review
+  useEffect(() => {
+    if (user && packageId && firebaseConfigured) {
+      DB.getSpacedRepData(user.id, packageId).then(data => {
+        const now = Date.now();
+        const due = data.filter(d => !d.nextReview || d.nextReview <= now).map(d => d.factId);
+        setDueForReview(due);
+      });
+    }
+  }, []);
+
+  // Spaced rep: sort due-for-review cards first
+  const orderedFacts = useMemo(() => {
+    if (!spacedRepMode || dueForReview.length === 0) return shuffledFacts;
+    const dueFacts = shuffledFacts.filter(f => dueForReview.includes(f.id));
+    const otherFacts = shuffledFacts.filter(f => !dueForReview.includes(f.id));
+    return [...dueFacts, ...otherFacts];
+  }, [spacedRepMode, dueForReview, shuffledFacts]);
+
+  const activeFacts = orderedFacts;
+  const progress = ((currentIndex+1)/activeFacts.length)*100;
+  const next = () => { if(currentIndex<activeFacts.length-1){setFlipped(false);setTimeout(()=>setCurrentIndex(i=>i+1),100);} };
   const prev = () => { if(currentIndex>0){setFlipped(false);setTimeout(()=>setCurrentIndex(i=>i-1),100);} };
+
+  const rateConfidence = async (level) => {
+    // level: 0=forgot, 0.5=partly, 1=knew it
+    if (user && packageId && firebaseConfigured) {
+      const fact = activeFacts[currentIndex];
+      await DB.saveFactConfidence(user.id, packageId, fact.id, level);
+    }
+    next();
+  };
 
   const touchStart = useRef(null);
   const handleTS = (e) => { touchStart.current=e.touches[0].clientY; };
@@ -3363,11 +3565,13 @@ function MicroLearnMode({ facts, categories, onBack }) {
     <div className="microlearn">
       <div className="ml-progress">
         <div className="progress-bar"><div className="progress-fill" style={{width:`${progress}%`}}/></div>
-        <div className="progress-text">{currentIndex+1}/{shuffledFacts.length}</div>
+        <div className="progress-text">{currentIndex+1}/{activeFacts.length}</div>
+        {dueForReview.length > 0 && <div style={{fontSize:10,color:'var(--warning)',whiteSpace:'nowrap'}}>{dueForReview.length} due</div>}
       </div>
       <div className="mode-toggle">
         <button className={viewMode==='swipe'?'active':''} onClick={()=>setViewMode('swipe')}>🃏 Cards</button>
         <button className={viewMode==='scroll'?'active':''} onClick={()=>setViewMode('scroll')}>📜 Scroll</button>
+        {dueForReview.length > 0 && <button className={spacedRepMode?'active':''} onClick={()=>setSpacedRepMode(!spacedRepMode)} style={{fontSize:10}}>🧠 Review</button>}
       </div>
 
       {viewMode==='swipe' ? (
@@ -3390,10 +3594,18 @@ function MicroLearnMode({ facts, categories, onBack }) {
               </div>
             </div>
           </div>
+          {/* Spaced rep confidence rating (shown when flipped) */}
+          {flipped && user && packageId && (
+            <div style={{display:'flex',justifyContent:'center',gap:8,padding:'8px 16px'}}>
+              <button className="btn btn-sm" style={{background:'rgba(225,112,85,.15)',color:'var(--danger)',border:'1px solid var(--danger)',flex:1}} onClick={()=>rateConfidence(0)}>😕 Forgot</button>
+              <button className="btn btn-sm" style={{background:'rgba(253,203,110,.15)',color:'var(--warning)',border:'1px solid var(--warning)',flex:1}} onClick={()=>rateConfidence(0.5)}>🤔 Partly</button>
+              <button className="btn btn-sm" style={{background:'rgba(0,184,148,.15)',color:'var(--success)',border:'1px solid var(--success)',flex:1}} onClick={()=>rateConfidence(1)}>😊 Knew it</button>
+            </div>
+          )}
           <div className="swipe-nav">
             <button onClick={prev} disabled={currentIndex===0}>◀</button>
             <button className="primary-nav" onClick={()=>setFlipped(f=>!f)}>🔄</button>
-            <button onClick={next} disabled={currentIndex===shuffledFacts.length-1}>▶</button>
+            <button onClick={next} disabled={currentIndex===activeFacts.length-1}>▶</button>
           </div>
         </>
       ) : (

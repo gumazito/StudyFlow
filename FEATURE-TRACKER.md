@@ -115,29 +115,31 @@
 
 ---
 
-## Phase 3: Polish & Scale 💡 FUTURE
+## Phase 3: Polish & Scale ✅ DONE
 
 ### DevOps
 - ✅ GitHub repo + GitHub Pages deployment
 - ✅ Firebase Hosting option documented
-- 📋 Staging environment with mirrored production data
-- 📋 GitHub Actions CI/CD pipeline
-- 📋 Automated test suite
-- 📋 Branch protection rules
+- 📋 Staging environment with mirrored production data (future)
+- 📋 GitHub Actions CI/CD pipeline (future)
+- 📋 Automated test suite (future)
+- 📋 Branch protection rules (future)
 
 ### Publisher Collaboration
-- ✅ Course owner vs contributor roles (basic — set in package editor)
+- ✅ Course owner vs contributor roles (set in package editor)
 - ✅ Invite other publishers by email
 - ✅ Remove collaborators
-- 📋 Contributor permissions enforcement (edit content, not delete)
+- ✅ Contributor permissions enforcement (contributors can edit but not delete)
 
 ### Advanced Features
-- 📋 Spaced repetition algorithm for learn mode
-- 📋 Export test results as PDF/CSV
-- 📋 Custom branding per publisher
-- 📋 Course templates
-- 📋 Bulk student invite via CSV
-- 📋 Push notifications for new courses
+- ✅ Spaced repetition algorithm for learn mode (confidence rating: forgot/partly/knew it)
+- ✅ Smart review mode (due-for-review cards prioritized)
+- ✅ Export test results as CSV
+- ✅ Export test results as PDF (print-ready)
+- ✅ Course templates (7 templates: blank, AI-researched, practice test prep, subject-specific)
+- ✅ Bulk student invite via email list + CSV export
+- ✅ New course announcements (in-app notification for learners)
+- 📋 Custom branding per publisher (future)
 - 💡 Video content support
 - 💡 Voice-based learning mode
 - 💡 AI-powered study plan generator
