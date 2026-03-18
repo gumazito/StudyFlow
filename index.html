@@ -1,0 +1,2221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>StudyFlow</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #0a0a0f; --bg-card: #16161f; --bg-card-hover: #1e1e2a; --bg-elevated: #1c1c28;
+  --primary: #6c5ce7; --primary-light: #a29bfe; --primary-dark: #4834d4;
+  --accent: #00cec9; --accent-light: #55efc4; --success: #00b894;
+  --warning: #fdcb6e; --danger: #e17055; --danger-light: #fab1a0;
+  --text: #f0f0f5; --text-secondary: #9d9daf; --text-muted: #6b6b80;
+  --border: #2a2a3d; --radius: 16px; --radius-sm: 10px; --radius-xs: 6px;
+  --shadow: 0 8px 32px rgba(0,0,0,0.3);
+  --font: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --author-accent: #e17055; --learner-accent: #00cec9;
+}
+html, body, #root { height: 100%; font-family: var(--font); background: var(--bg); color: var(--text); overflow: hidden; }
+body { -webkit-font-smoothing: antialiased; }
+::-webkit-scrollbar { width: 4px; } ::-webkit-scrollbar-track { background: transparent; } ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+@keyframes fadeIn { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:translateY(0); } }
+@keyframes slideUp { from { opacity:0; transform:translateY(100%); } to { opacity:1; transform:translateY(0); } }
+@keyframes bounceIn { 0%{transform:scale(.3);opacity:0}50%{transform:scale(1.05)}70%{transform:scale(.9)}100%{transform:scale(1);opacity:1} }
+@keyframes shake { 0%,100%{transform:translateX(0)}25%{transform:translateX(-8px)}75%{transform:translateX(8px)} }
+@keyframes spin { to { transform:rotate(360deg); } }
+@keyframes glow { 0%,100%{box-shadow:0 0 20px rgba(108,92,231,.3)}50%{box-shadow:0 0 40px rgba(108,92,231,.6)} }
+@keyframes float { 0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)} }
+.fade-in { animation: fadeIn .4s ease-out; }
+.bounce-in { animation: bounceIn .6s cubic-bezier(.68,-.55,.265,1.55); }
+.shake { animation: shake .4s ease; }
+
+.app { height:100vh; display:flex; flex-direction:column; overflow:hidden; position:relative; }
+.gradient-bg { position:fixed; inset:0; z-index:0; pointer-events:none;
+  background: radial-gradient(ellipse at 20% 0%, rgba(108,92,231,.12) 0%, transparent 50%),
+              radial-gradient(ellipse at 80% 100%, rgba(0,206,201,.08) 0%, transparent 50%); }
+
+/* -------- LOGIN -------- */
+.login-screen { display:flex; align-items:center; justify-content:center; min-height:100vh; padding:20px; position:relative; z-index:1; }
+.login-box { width:100%; max-width:420px; }
+.login-logo { text-align:center; margin-bottom:32px; }
+.login-logo h1 { font-size:36px; font-weight:900; background:linear-gradient(135deg,var(--primary-light),var(--accent)); -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
+.login-logo p { color:var(--text-muted); font-size:14px; margin-top:4px; }
+.login-field { margin-bottom:14px; }
+.login-field label { display:block; font-size:12px; font-weight:600; color:var(--text-secondary); margin-bottom:6px; text-transform:uppercase; letter-spacing:.5px; }
+.login-field input, .login-field select { width:100%; padding:12px 14px; border:1px solid var(--border); border-radius:var(--radius-xs); background:var(--bg-card); color:var(--text); font-size:14px; font-family:var(--font); transition:border-color .2s; }
+.login-field input:focus, .login-field select:focus { outline:none; border-color:var(--primary); }
+.login-field select { appearance:none; background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239d9daf' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E"); background-repeat:no-repeat; background-position:right 12px center; padding-right:36px; }
+.login-btn { width:100%; padding:14px; border:none; border-radius:var(--radius-sm); font-size:15px; font-weight:700; cursor:pointer; font-family:var(--font); transition:all .2s; margin-top:8px; }
+.login-btn.author-btn { background:linear-gradient(135deg,var(--author-accent),#e74c3c); color:white; }
+.login-btn.learner-btn { background:linear-gradient(135deg,var(--primary),var(--accent)); color:white; }
+.login-btn:hover { transform:translateY(-1px); box-shadow:var(--shadow); }
+.login-divider { text-align:center; color:var(--text-muted); font-size:12px; margin:16px 0; position:relative; }
+.login-divider::before,.login-divider::after { content:''; position:absolute; top:50%; width:40%; height:1px; background:var(--border); }
+.login-divider::before { left:0; } .login-divider::after { right:0; }
+
+/* -------- NAV -------- */
+.nav { display:flex; align-items:center; justify-content:space-between; padding:10px 16px; border-bottom:1px solid var(--border); background:rgba(10,10,15,.92); backdrop-filter:blur(20px); z-index:100; flex-shrink:0; gap:8px; }
+.nav-logo { font-size:18px; font-weight:800; background:linear-gradient(135deg,var(--primary-light),var(--accent)); -webkit-background-clip:text; -webkit-text-fill-color:transparent; white-space:nowrap; }
+.nav-role { font-size:11px; padding:3px 10px; border-radius:20px; font-weight:600; white-space:nowrap; }
+.nav-role.author { background:rgba(225,112,85,.15); color:var(--author-accent); }
+.nav-role.learner { background:rgba(0,206,201,.15); color:var(--learner-accent); }
+.nav-right { display:flex; align-items:center; gap:8px; }
+.nav-btn { background:none; border:none; color:var(--text-secondary); font-size:13px; cursor:pointer; display:flex; align-items:center; gap:4px; padding:6px 10px; border-radius:var(--radius-xs); transition:all .2s; font-family:var(--font); white-space:nowrap; }
+.nav-btn:hover { background:var(--bg-card); color:var(--text); }
+.nav-user { font-size:13px; color:var(--text-muted); display:flex; align-items:center; gap:6px; }
+
+/* -------- MAIN -------- */
+.main { flex:1; overflow-y:auto; overflow-x:hidden; position:relative; z-index:1; }
+.page { padding:16px; max-width:900px; margin:0 auto; }
+.page-header { margin-bottom:20px; }
+.page-header h1 { font-size:24px; font-weight:800; margin-bottom:4px; }
+.page-header p { font-size:14px; color:var(--text-secondary); }
+
+/* -------- FORM ELEMENTS -------- */
+.form-group { margin-bottom:16px; }
+.form-label { display:block; font-size:12px; font-weight:600; color:var(--text-secondary); margin-bottom:6px; text-transform:uppercase; letter-spacing:.5px; }
+.form-input, .form-select, .form-textarea { width:100%; padding:11px 14px; border:1px solid var(--border); border-radius:var(--radius-xs); background:var(--bg-card); color:var(--text); font-size:14px; font-family:var(--font); transition:border-color .2s; }
+.form-input:focus, .form-select:focus, .form-textarea:focus { outline:none; border-color:var(--primary); }
+.form-select { appearance:none; background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239d9daf' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E"); background-repeat:no-repeat; background-position:right 12px center; padding-right:36px; }
+.form-textarea { min-height:80px; resize:vertical; }
+.form-row { display:flex; gap:12px; }
+.form-row > * { flex:1; }
+.form-hint { font-size:11px; color:var(--text-muted); margin-top:4px; }
+.form-toggle { display:flex; align-items:center; gap:10px; cursor:pointer; }
+.toggle-track { width:44px; height:24px; border-radius:12px; background:var(--border); position:relative; transition:background .2s; flex-shrink:0; }
+.toggle-track.on { background:var(--primary); }
+.toggle-thumb { width:20px; height:20px; border-radius:50%; background:white; position:absolute; top:2px; left:2px; transition:left .2s; }
+.toggle-track.on .toggle-thumb { left:22px; }
+.toggle-label { font-size:13px; font-weight:500; }
+.toggle-desc { font-size:11px; color:var(--text-muted); }
+
+/* -------- CARDS -------- */
+.card { background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius); padding:16px; transition:all .2s; position:relative; overflow:hidden; }
+.card:hover { border-color:rgba(108,92,231,.4); }
+.card-grid { display:grid; gap:12px; grid-template-columns:1fr; padding-bottom:80px; }
+@media(min-width:600px) { .card-grid { grid-template-columns:1fr 1fr; } }
+
+/* -------- UPLOAD ZONE -------- */
+.upload-area { border:2px dashed var(--border); border-radius:var(--radius); padding:24px 16px; text-align:center; cursor:pointer; transition:all .3s; position:relative; overflow:hidden; margin-bottom:8px; }
+.upload-area:hover, .upload-area.dragover { border-color:var(--primary); background:rgba(108,92,231,.04); }
+.upload-area input { position:absolute; inset:0; opacity:0; cursor:pointer; }
+.upload-area h4 { font-size:14px; font-weight:600; margin-bottom:2px; }
+.upload-area p { font-size:12px; color:var(--text-muted); }
+.upload-formats { display:flex; gap:4px; justify-content:center; margin-top:8px; flex-wrap:wrap; }
+.upload-formats span { font-size:10px; padding:2px 8px; border-radius:20px; background:var(--bg); color:var(--text-muted); border:1px solid var(--border); }
+
+/* -------- CONTENT ITEMS -------- */
+.content-item { display:flex; align-items:center; gap:12px; padding:10px 12px; background:var(--bg); border:1px solid var(--border); border-radius:var(--radius-xs); margin-bottom:6px; }
+.content-item .ci-icon { font-size:20px; flex-shrink:0; }
+.content-item .ci-info { flex:1; min-width:0; }
+.content-item .ci-name { font-size:13px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.content-item .ci-meta { font-size:11px; color:var(--text-muted); }
+.content-type-badge { font-size:10px; padding:2px 8px; border-radius:10px; font-weight:600; white-space:nowrap; }
+.content-type-badge.research { background:rgba(108,92,231,.15); color:var(--primary-light); }
+.content-type-badge.practice { background:rgba(0,206,201,.15); color:var(--accent); }
+.ci-actions { display:flex; gap:4px; }
+.ci-btn { background:none; border:none; color:var(--text-muted); cursor:pointer; padding:4px; font-size:14px; transition:color .2s; }
+.ci-btn:hover { color:var(--danger); }
+
+/* -------- STATUS BADGES -------- */
+.status-badge { font-size:10px; padding:3px 10px; border-radius:10px; font-weight:600; }
+.status-badge.draft { background:rgba(253,203,110,.15); color:var(--warning); }
+.status-badge.published { background:rgba(0,184,148,.15); color:var(--success); }
+
+/* -------- BUTTONS -------- */
+.btn { padding:10px 18px; border:none; border-radius:var(--radius-sm); font-size:13px; font-weight:600; cursor:pointer; font-family:var(--font); transition:all .2s; display:inline-flex; align-items:center; gap:6px; }
+.btn:hover { transform:translateY(-1px); }
+.btn-primary { background:var(--primary); color:white; }
+.btn-primary:hover { box-shadow:0 4px 20px rgba(108,92,231,.4); }
+.btn-success { background:var(--success); color:white; }
+.btn-danger { background:transparent; color:var(--danger); border:1px solid var(--danger); }
+.btn-ghost { background:var(--bg-card); color:var(--text-secondary); border:1px solid var(--border); }
+.btn-ghost:hover { border-color:var(--primary-light); color:var(--text); }
+.btn-lg { padding:14px 24px; font-size:15px; font-weight:700; width:100%; justify-content:center; border-radius:var(--radius); }
+.btn-sm { padding:6px 12px; font-size:12px; }
+
+/* -------- PACKAGE CARD (author) -------- */
+.pkg-card { cursor:pointer; }
+.pkg-card .pkg-top { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:8px; }
+.pkg-card .pkg-title { font-size:15px; font-weight:700; flex:1; margin-right:8px; }
+.pkg-card .pkg-desc { font-size:12px; color:var(--text-secondary); margin-bottom:10px; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+.pkg-meta-row { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px; }
+.pkg-meta-tag { font-size:10px; padding:2px 8px; border-radius:10px; background:var(--bg); border:1px solid var(--border); color:var(--text-muted); }
+.pkg-stats { display:flex; gap:12px; font-size:11px; color:var(--text-muted); }
+.pkg-actions { display:flex; gap:8px; margin-top:12px; }
+.pkg-actions .btn { flex:1; justify-content:center; }
+
+/* -------- LEARNER BROWSE CARD -------- */
+.browse-card { cursor:pointer; }
+.browse-card:hover { transform:translateY(-2px); box-shadow:var(--shadow); }
+.browse-card::before { content:''; position:absolute; top:0; left:0; right:0; height:3px; background:linear-gradient(90deg,var(--primary),var(--accent)); opacity:0; transition:opacity .2s; }
+.browse-card:hover::before { opacity:1; }
+.browse-subject { font-size:10px; text-transform:uppercase; letter-spacing:1px; font-weight:700; color:var(--primary-light); margin-bottom:6px; }
+.browse-title { font-size:16px; font-weight:700; margin-bottom:4px; }
+.browse-desc { font-size:12px; color:var(--text-secondary); margin-bottom:10px; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+.browse-footer { display:flex; justify-content:space-between; align-items:center; }
+.browse-meta { display:flex; gap:8px; }
+.browse-actions { display:flex; gap:8px; }
+
+/* -------- FILTERS -------- */
+.filters { display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap; }
+.filter-chip { padding:6px 14px; border-radius:20px; font-size:12px; font-weight:500; border:1px solid var(--border); background:var(--bg-card); color:var(--text-secondary); cursor:pointer; transition:all .2s; font-family:var(--font); }
+.filter-chip.active { background:var(--primary); border-color:var(--primary); color:white; }
+.filter-chip:hover { border-color:var(--primary-light); }
+
+/* -------- MICRO LEARN -------- */
+.microlearn { height:100%; display:flex; flex-direction:column; }
+.ml-progress { padding:10px 16px; display:flex; align-items:center; gap:10px; flex-shrink:0; }
+.progress-bar { flex:1; height:4px; background:var(--border); border-radius:2px; overflow:hidden; }
+.progress-fill { height:100%; background:linear-gradient(90deg,var(--primary),var(--accent)); border-radius:2px; transition:width .4s ease; }
+.progress-text { font-size:11px; color:var(--text-muted); white-space:nowrap; }
+.mode-toggle { display:flex; gap:3px; padding:3px; background:var(--bg-card); border-radius:20px; margin:0 16px 10px; flex-shrink:0; }
+.mode-toggle button { flex:1; padding:7px; border:none; border-radius:18px; font-size:11px; font-weight:600; cursor:pointer; transition:all .2s; font-family:var(--font); color:var(--text-muted); background:transparent; }
+.mode-toggle button.active { background:var(--primary); color:white; }
+
+.swipe-container { flex:1; display:flex; align-items:center; justify-content:center; padding:16px; overflow:hidden; touch-action:pan-y; }
+.fact-card { width:100%; max-width:400px; min-height:320px; perspective:1000px; cursor:pointer; user-select:none; }
+.fact-card-inner { width:100%; min-height:320px; transition:transform .6s cubic-bezier(.16,1,.3,1); transform-style:preserve-3d; position:relative; }
+.fact-card-inner.flipped { transform:rotateY(180deg); }
+.fact-front, .fact-back { width:100%; min-height:320px; border-radius:var(--radius); padding:28px 20px; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; backface-visibility:hidden; position:absolute; top:0; left:0; }
+.fact-front { background:linear-gradient(145deg,var(--bg-card),var(--bg-elevated)); border:1px solid var(--border); z-index:2; }
+.fact-back { background:linear-gradient(145deg,rgba(108,92,231,.15),rgba(0,206,201,.08)); border:1px solid var(--primary); transform:rotateY(180deg); }
+.fact-category { font-size:10px; text-transform:uppercase; letter-spacing:1.5px; color:var(--primary-light); font-weight:600; margin-bottom:12px; }
+.fact-emoji { font-size:42px; margin-bottom:12px; }
+.fact-text { font-size:17px; font-weight:600; line-height:1.5; }
+.fact-detail { font-size:14px; line-height:1.6; color:var(--text-secondary); margin-top:10px; }
+.fact-hint { font-size:11px; color:var(--text-muted); margin-top:16px; }
+
+.swipe-nav { display:flex; justify-content:center; gap:14px; padding:14px; flex-shrink:0; }
+.swipe-nav button { width:50px; height:50px; border-radius:50%; border:1px solid var(--border); background:var(--bg-card); color:var(--text); font-size:20px; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all .2s; }
+.swipe-nav button:hover { background:var(--bg-elevated); border-color:var(--primary); }
+.swipe-nav button.primary-nav { background:var(--primary); border-color:var(--primary); color:white; }
+
+.scroll-container { flex:1; overflow-y:auto; padding:12px 16px; scroll-snap-type:y mandatory; }
+.scroll-card { scroll-snap-align:start; min-height:calc(100vh - 200px); display:flex; flex-direction:column; align-items:center; justify-content:center; padding:28px 16px; margin-bottom:12px; background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius); text-align:center; }
+.scroll-num { font-size:56px; font-weight:900; background:linear-gradient(135deg,var(--primary),var(--accent)); -webkit-background-clip:text; -webkit-text-fill-color:transparent; margin-bottom:12px; }
+.scroll-fact { font-size:20px; font-weight:700; line-height:1.4; margin-bottom:12px; max-width:340px; }
+.scroll-detail { font-size:13px; color:var(--text-secondary); line-height:1.6; max-width:320px; }
+
+/* -------- TEST MODE -------- */
+.test-view { height:100%; display:flex; flex-direction:column; }
+.test-header { padding:10px 16px; display:flex; align-items:center; gap:10px; flex-shrink:0; border-bottom:1px solid var(--border); }
+.test-q-num { font-size:12px; font-weight:600; color:var(--text-muted); white-space:nowrap; }
+.test-timer { font-size:12px; color:var(--accent); font-weight:600; margin-left:auto; white-space:nowrap; }
+.test-content { flex:1; overflow-y:auto; padding:16px; display:flex; flex-direction:column; align-items:center; }
+.test-question-card { width:100%; max-width:600px; animation:fadeIn .3s ease; }
+.test-type-badge { display:inline-block; font-size:10px; text-transform:uppercase; letter-spacing:1px; padding:3px 10px; border-radius:20px; margin-bottom:14px; font-weight:600; }
+.test-type-badge.mcq { background:rgba(108,92,231,.15); color:var(--primary-light); }
+.test-type-badge.written { background:rgba(0,206,201,.15); color:var(--accent); }
+.test-type-badge.truefalse { background:rgba(253,203,110,.15); color:var(--warning); }
+.test-type-badge.selectall { background:rgba(85,239,196,.15); color:var(--accent-light); }
+.test-question { font-size:18px; font-weight:700; line-height:1.4; margin-bottom:20px; }
+
+.mcq-options { display:flex; flex-direction:column; gap:8px; width:100%; }
+.mcq-option { padding:12px 14px; border:2px solid var(--border); border-radius:var(--radius-sm); cursor:pointer; transition:all .2s; font-size:14px; line-height:1.4; display:flex; align-items:center; gap:10px; background:var(--bg-card); }
+.mcq-option:hover { border-color:var(--primary); }
+.mcq-option .option-letter { width:26px; height:26px; border-radius:50%; background:var(--bg); display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:700; flex-shrink:0; }
+.mcq-option.selected { border-color:var(--primary); background:rgba(108,92,231,.08); }
+.mcq-option.selected .option-letter { background:var(--primary); color:white; }
+.mcq-option.correct { border-color:var(--success); background:rgba(0,184,148,.08); }
+.mcq-option.correct .option-letter { background:var(--success); color:white; }
+.mcq-option.incorrect { border-color:var(--danger); background:rgba(225,112,85,.08); }
+.mcq-option.incorrect .option-letter { background:var(--danger); color:white; }
+.mcq-option.disabled { pointer-events:none; opacity:.5; }
+.mcq-option.disabled.correct { opacity:1; }
+
+.tf-options { display:flex; gap:10px; width:100%; }
+.tf-option { flex:1; padding:18px; border:2px solid var(--border); border-radius:var(--radius-sm); cursor:pointer; text-align:center; font-size:16px; font-weight:700; transition:all .2s; background:var(--bg-card); }
+.tf-option:hover { border-color:var(--primary); }
+.tf-option.selected { border-color:var(--primary); background:rgba(108,92,231,.08); }
+.tf-option.correct { border-color:var(--success); background:rgba(0,184,148,.08); }
+.tf-option.incorrect { border-color:var(--danger); background:rgba(225,112,85,.08); }
+
+.written-input, .fillin-input { width:100%; padding:12px 14px; border:2px solid var(--border); border-radius:var(--radius-sm); background:var(--bg-card); color:var(--text); font-size:14px; font-family:var(--font); transition:border-color .2s; }
+.written-input { min-height:90px; resize:vertical; }
+.written-input:focus, .fillin-input:focus { outline:none; border-color:var(--primary); }
+.fillin-sentence { font-size:16px; line-height:1.6; margin-bottom:14px; }
+.fillin-blank { display:inline-block; min-width:100px; border-bottom:2px dashed var(--primary-light); padding:2px 6px; margin:0 4px; }
+
+.test-submit { width:100%; max-width:600px; margin-top:16px; padding-bottom:20px; }
+.feedback-box { margin-top:14px; padding:14px; border-radius:var(--radius-sm); animation:fadeIn .3s ease; }
+.feedback-box.correct { background:rgba(0,184,148,.08); border:1px solid rgba(0,184,148,.25); }
+.feedback-box.incorrect { background:rgba(225,112,85,.08); border:1px solid rgba(225,112,85,.25); }
+.feedback-icon { font-size:24px; margin-bottom:6px; }
+.feedback-title { font-size:15px; font-weight:700; margin-bottom:4px; }
+.feedback-box.correct .feedback-title { color:var(--success); }
+.feedback-box.incorrect .feedback-title { color:var(--danger); }
+.feedback-explain { font-size:13px; color:var(--text-secondary); line-height:1.5; }
+.feedback-answer { font-size:13px; color:var(--accent); font-weight:600; margin-top:6px; }
+
+/* -------- SCORE -------- */
+.score-screen { padding:20px; text-align:center; max-width:480px; margin:0 auto; display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:100%; }
+.score-circle { width:160px; height:160px; border-radius:50%; display:flex; flex-direction:column; align-items:center; justify-content:center; margin-bottom:20px; animation:bounceIn .6s ease; position:relative; }
+.score-circle::before { content:''; position:absolute; inset:-4px; border-radius:50%; animation:glow 2s infinite; }
+.score-circle.great { background:linear-gradient(135deg,rgba(0,184,148,.2),rgba(85,239,196,.1)); border:3px solid var(--success); }
+.score-circle.ok { background:linear-gradient(135deg,rgba(253,203,110,.2),rgba(253,203,110,.1)); border:3px solid var(--warning); }
+.score-circle.needs-work { background:linear-gradient(135deg,rgba(225,112,85,.2),rgba(250,177,160,.1)); border:3px solid var(--danger); }
+.score-percent { font-size:42px; font-weight:900; }
+.score-label { font-size:12px; color:var(--text-muted); }
+.score-message { font-size:18px; font-weight:700; margin-bottom:6px; }
+.score-detail { font-size:13px; color:var(--text-secondary); margin-bottom:20px; }
+.score-stats { display:flex; gap:12px; margin-bottom:24px; }
+.score-stat { background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius-sm); padding:14px 20px; text-align:center; }
+.score-stat .stat-num { font-size:22px; font-weight:800; }
+.score-stat .stat-label { font-size:10px; color:var(--text-muted); text-transform:uppercase; letter-spacing:1px; }
+
+/* -------- OVERLAY / MODAL -------- */
+.overlay { position:fixed; inset:0; background:rgba(0,0,0,.7); z-index:200; display:flex; align-items:flex-end; justify-content:center; }
+.modal { background:var(--bg-elevated); border-radius:var(--radius) var(--radius) 0 0; width:100%; max-width:600px; max-height:85vh; overflow-y:auto; padding:20px; animation:slideUp .3s ease; }
+@media(min-width:600px) { .overlay { align-items:center; } .modal { border-radius:var(--radius); max-height:80vh; } }
+.modal-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; }
+.modal-header h2 { font-size:18px; font-weight:800; }
+.modal-close { background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:20px; padding:4px; }
+
+/* -------- PROCESSING -------- */
+.processing { position:fixed; inset:0; background:rgba(10,10,15,.95); z-index:300; display:flex; flex-direction:column; align-items:center; justify-content:center; }
+.processing-spinner { width:50px; height:50px; border:3px solid var(--border); border-top-color:var(--primary); border-radius:50%; animation:spin 1s linear infinite; margin-bottom:16px; }
+
+/* -------- EMPTY -------- */
+.empty-state { text-align:center; padding:48px 16px; }
+.empty-icon { font-size:56px; margin-bottom:12px; animation:float 3s ease-in-out infinite; }
+.empty-state h3 { font-size:16px; font-weight:700; margin-bottom:6px; }
+.empty-state p { font-size:13px; color:var(--text-muted); max-width:280px; margin:0 auto; }
+
+/* -------- TABS -------- */
+.tabs { display:flex; border-bottom:1px solid var(--border); margin-bottom:16px; }
+.tab { padding:10px 16px; font-size:13px; font-weight:600; color:var(--text-muted); cursor:pointer; border-bottom:2px solid transparent; transition:all .2s; font-family:var(--font); background:none; border-top:none; border-left:none; border-right:none; }
+.tab.active { color:var(--text); border-bottom-color:var(--primary); }
+
+/* -------- AUTH FORMS -------- */
+.auth-error { background:rgba(225,112,85,.1); border:1px solid rgba(225,112,85,.3); border-radius:var(--radius-xs); padding:10px 14px; font-size:13px; color:var(--danger); margin-bottom:14px; }
+.auth-success { background:rgba(0,184,148,.1); border:1px solid rgba(0,184,148,.3); border-radius:var(--radius-xs); padding:10px 14px; font-size:13px; color:var(--success); margin-bottom:14px; }
+.auth-link { background:none; border:none; color:var(--primary-light); cursor:pointer; font-size:13px; font-family:var(--font); text-decoration:underline; padding:0; }
+.auth-link:hover { color:var(--accent); }
+.auth-footer { text-align:center; margin-top:16px; font-size:13px; color:var(--text-muted); }
+.role-selector { display:flex; gap:8px; margin-bottom:14px; }
+.role-option { flex:1; padding:14px 10px; border:2px solid var(--border); border-radius:var(--radius-sm); cursor:pointer; text-align:center; transition:all .2s; background:var(--bg-card); }
+.role-option.selected { border-color:var(--primary); background:rgba(108,92,231,.08); }
+.role-option .role-icon { font-size:28px; margin-bottom:4px; }
+.role-option .role-name { font-size:13px; font-weight:700; }
+.role-option .role-desc { font-size:10px; color:var(--text-muted); margin-top:2px; }
+.config-warning { background:rgba(253,203,110,.1); border:1px solid rgba(253,203,110,.3); border-radius:var(--radius); padding:16px; margin-bottom:16px; text-align:center; }
+.config-warning h3 { font-size:15px; font-weight:700; color:var(--warning); margin-bottom:6px; }
+.config-warning p { font-size:12px; color:var(--text-secondary); line-height:1.5; }
+.config-warning code { background:var(--bg); padding:2px 6px; border-radius:3px; font-size:11px; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef, useCallback, useMemo } = React;
+
+// ============================================================
+// FIREBASE CONFIG — PASTE YOUR VALUES FROM FIREBASE CONSOLE
+// ============================================================
+const FIREBASE_CONFIG = {
+  apiKey: "PASTE YOUR API KEY HERE",
+  authDomain: "PASTE YOUR AUTH DOMAIN HERE",
+  projectId: "PASTE YOUR PROJECT ID HERE",
+  storageBucket: "PASTE YOUR STORAGE BUCKET HERE",
+  messagingSenderId: "PASTE YOUR MESSAGING SENDER ID HERE",
+  appId: "PASTE YOUR APP ID HERE"
+};
+
+// Initialize Firebase (only if configured)
+const firebaseConfigured = FIREBASE_CONFIG.apiKey && !FIREBASE_CONFIG.apiKey.includes('PASTE');
+let fb_app, fb_auth, fb_db;
+if (firebaseConfigured) {
+  fb_app = firebase.initializeApp(FIREBASE_CONFIG);
+  fb_auth = firebase.auth();
+  fb_db = firebase.firestore();
+}
+
+// ============================================================
+// DATABASE HELPERS — save/load from Firestore (or memory fallback)
+// ============================================================
+const DB = {
+  async savePackage(pkg) {
+    if (!fb_db) return;
+    const data = { ...pkg, facts: JSON.stringify(pkg.facts), content: JSON.stringify(pkg.content),
+      categories: JSON.stringify(pkg.categories), testPatterns: JSON.stringify(pkg.testPatterns) };
+    await fb_db.collection('packages').doc(pkg.id).set(data, { merge: true });
+  },
+  async loadPackages() {
+    if (!fb_db) return [];
+    const snap = await fb_db.collection('packages').get();
+    return snap.docs.map(doc => {
+      const d = doc.data();
+      try { return { ...d, facts: JSON.parse(d.facts||'[]'), content: JSON.parse(d.content||'[]'),
+        categories: JSON.parse(d.categories||'[]'), testPatterns: JSON.parse(d.testPatterns||'null') }; }
+      catch(e) { return d; }
+    });
+  },
+  async deletePackage(id) { if (fb_db) await fb_db.collection('packages').doc(id).delete(); },
+  async saveUser(uid, data) { if (fb_db) await fb_db.collection('users').doc(uid).set(data, { merge: true }); },
+  async getUser(uid) { if (!fb_db) return null; const doc = await fb_db.collection('users').doc(uid).get(); return doc.exists ? doc.data() : null; },
+};
+
+// ============================================================
+// CONSTANTS & UTILITIES
+// ============================================================
+const SUBJECTS = ['Mathematics','English','Science','HAAS (Humanities)','Religion','Sport & PE','IT / Digital Tech','Art & Design','Music','Languages','Health','Business','Other'];
+const YEAR_LEVELS = ['Year 7','Year 8','Year 9','Year 10','Year 11','Year 12'];
+const CONTENT_TYPES = { RESEARCH: 'research', PRACTICE_TEST: 'practice_test' };
+
+const genId = () => Math.random().toString(36).slice(2,10);
+const shuffle = (arr) => { const a=[...arr]; for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];} return a; };
+const pickRandom = (arr,n) => shuffle(arr).slice(0,n);
+const emojis = ['📚','🧠','💡','🔬','📐','🌍','🧪','📊','🎯','⚡','🔢','📝','🎨','🧬','🌟','💫','🔭','📖','✨','🎓'];
+const getEmoji = (i) => emojis[i % emojis.length];
+
+// ============================================================
+// FILE PARSER
+// ============================================================
+async function parseFile(file) {
+  const ext = file.name.split('.').pop().toLowerCase();
+  if (['txt','md','csv'].includes(ext)) return await file.text();
+  if (ext === 'pdf') return await parsePDF(file);
+  if (ext === 'html' || ext === 'htm') { const t = await file.text(); const d = new DOMParser().parseFromString(t,'text/html'); return d.body.innerText; }
+  return await file.text();
+}
+async function parsePDF(file) {
+  const buf = await file.arrayBuffer();
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  const pdf = await pdfjsLib.getDocument(buf).promise;
+  let text = '';
+  for (let i=1; i<=pdf.numPages; i++) { const pg = await pdf.getPage(i); const c = await pg.getTextContent(); text += c.items.map(x=>x.str).join(' ') + '\n\n'; }
+  return text;
+}
+
+// ============================================================
+// CONTENT PROCESSOR
+// ============================================================
+function extractResearchFacts(rawText, topicName) {
+  const paragraphs = rawText.split(/\n\n+/).map(p=>p.trim()).filter(p=>p.length>20 && p.length<2000);
+  const facts = []; const categories = new Set();
+  paragraphs.forEach((para, pi) => {
+    const sentences = para.split(/(?<=[.!?])\s+/).map(s=>s.trim()).filter(s=>s.length>15 && s.length<500);
+    let cat = topicName;
+    const hm = para.match(/^#+\s*(.+)/m) || para.match(/^([A-Z][A-Za-z\s]{2,30}):/);
+    if (hm) { cat = hm[1].trim().slice(0,40); categories.add(cat); }
+    sentences.forEach(sentence => {
+      facts.push({ id:genId(), text:sentence, detail: para.length>sentence.length ? para.replace(sentence,'').trim().slice(0,200) : '', category:cat, difficulty: sentence.length>100?'hard':sentence.length>50?'medium':'easy' });
+    });
+  });
+  if (categories.size===0) categories.add(topicName);
+  return { facts: facts.slice(0,300), categories: [...categories].slice(0,20) };
+}
+
+function extractTestPatterns(rawText) {
+  const patterns = {
+    questionStyles: [],
+    topicsCovered: [],       // e.g. ['water cycle','evaporation','latitude','climate']
+    conceptsToTeach: [],     // derived learning objectives from the questions
+    sampleQuestions: [],
+    keyTerms: new Set(),     // important vocabulary found
+    subjectHints: [],        // hints about what subject this is
+  };
+
+  const lines = rawText.split('\n').map(l=>l.trim()).filter(l=>l.length>0);
+  let currentQ = null;
+
+  lines.forEach(line => {
+    // Detect question patterns (numbered, Q-prefixed, or question marks)
+    const qMatch = line.match(/^(\d+[\.\)]\s*|Q\d+[\.\):\s]|Question\s*\d+)/i);
+    const isQuestion = qMatch || (line.endsWith('?') && line.length > 15);
+
+    if (isQuestion) {
+      if (currentQ) patterns.sampleQuestions.push(currentQ);
+      const qText = qMatch ? line.replace(qMatch[0],'').trim() : line;
+      currentQ = { text: qText, options:[], answer:'', originalLine: line };
+      return;
+    }
+    // Detect MCQ options
+    const optMatch = line.match(/^[A-Da-d][\.\)]\s*/);
+    if (optMatch && currentQ) { currentQ.options.push(line.replace(optMatch[0],'').trim()); return; }
+    // Detect answers
+    const ansMatch = line.match(/^(Answer|Ans|Correct)[:\s]*(.*)/i);
+    if (ansMatch && currentQ) { currentQ.answer = ansMatch[2].trim(); return; }
+    // Detect T/F and fill-in
+    if (/true\s*(?:or|\/)\s*false/i.test(line)) patterns.questionStyles.push('truefalse');
+    if (/_{2,}|\.{3,}|\[blank\]/i.test(line)) patterns.questionStyles.push('fillin');
+
+    // Detect headings that hint at topics (e.g. "Year 7 Practice questions:" or "Water Cycle Test")
+    const headingMatch = line.match(/^(?:Year\s*\d+\s*)?(.+?)(?:\s*(?:practice|test|exam|quiz|questions|assessment))/i);
+    if (headingMatch) patterns.subjectHints.push(headingMatch[1].trim());
+  });
+  if (currentQ) patterns.sampleQuestions.push(currentQ);
+
+  // --- DEEP ANALYSIS of questions to extract CONCEPTS ---
+  // Common science/geography/maths terms to look for
+  const domainTerms = /\b(water cycle|evaporation|condensation|precipitation|transpiration|infiltration|runoff|groundwater|climate|weather|latitude|longitude|equator|hemisphere|tropics?|arctic|antarctic|meridian|photosynthesis|respiration|ecosystem|habitat|cell|atom|molecule|equation|fraction|algebra|geometry|ratio|percentage|probability|force|gravity|energy|velocity|acceleration|mass|volume|density|temperature|pressure|erosion|volcano|earthquake|tectonic|fossil|evolution|adaptation|species|population|revolution|colonisation|democracy|economy|trade|migration|culture|religion|government|parliament|constitution)\b/gi;
+
+  const allQuestionText = patterns.sampleQuestions.map(q => q.text).join(' ');
+  const allText = rawText.toLowerCase();
+
+  // Extract domain-specific terms from questions
+  const foundTerms = new Set();
+  let match;
+  const regex1 = new RegExp(domainTerms.source, 'gi');
+  while ((match = regex1.exec(allText)) !== null) {
+    foundTerms.add(match[0].toLowerCase());
+  }
+
+  // Also extract multi-word noun phrases from questions (things like "water vapour", "key features")
+  patterns.sampleQuestions.forEach(q => {
+    const text = q.text;
+    // Extract "What is X" patterns -> X is a concept to teach
+    const whatIs = text.match(/what\s+(?:is|are)\s+(.+?)(?:\?|$)/i);
+    if (whatIs) { foundTerms.add(whatIs[1].toLowerCase().replace(/[?.]/g,'').trim()); }
+    // Extract "How does X" patterns -> X is a concept
+    const howDoes = text.match(/how\s+(?:does|do|did|can)\s+(.+?)(?:\s+(?:help|cause|affect|contribute|work|change))/i);
+    if (howDoes) { foundTerms.add(howDoes[1].toLowerCase().trim()); }
+    // Extract "What happens to/during/when X" patterns
+    const whatHappens = text.match(/what\s+happens?\s+(?:to|during|when)\s+(.+?)(?:\?|$)/i);
+    if (whatHappens) { foundTerms.add(whatHappens[1].toLowerCase().replace(/[?.]/g,'').trim()); }
+    // Extract "Describe the X" patterns
+    const describe = text.match(/(?:describe|explain|highlight|discuss|outline)\s+(?:the\s+)?(.+?)(?:\?|\.|$)/i);
+    if (describe) { foundTerms.add(describe[1].toLowerCase().replace(/[?.]/g,'').trim()); }
+    // Extract "difference between X and Y"
+    const diff = text.match(/difference\s+between\s+(.+?)\s+and\s+(.+?)(?:\?|\.|$)/i);
+    if (diff) { foundTerms.add(diff[1].toLowerCase().trim()); foundTerms.add(diff[2].toLowerCase().replace(/[?.]/g,'').trim()); }
+    // Extract "Name X types of Y"
+    const nameTypes = text.match(/name\s+\w+\s+types?\s+of\s+(.+?)(?:\?|\.|and\s)/i);
+    if (nameTypes) { foundTerms.add(nameTypes[1].toLowerCase().replace(/[?.]/g,'').trim()); }
+
+    // Classify question style
+    if (q.options.length >= 2) patterns.questionStyles.push('mcq');
+    else if (/true|false/i.test(q.answer)) patterns.questionStyles.push('truefalse');
+    else if (/describe|explain|discuss|outline|how|why/i.test(q.text)) patterns.questionStyles.push('written');
+    else if (/what is|name|identify|list|highlight/i.test(q.text)) patterns.questionStyles.push('fillin');
+    else patterns.questionStyles.push('written');
+  });
+
+  // Clean up terms — remove very short/generic ones
+  const cleanTerms = [...foundTerms].filter(t => t.length > 2 && !['the','and','for','that','this','with','from','are','was','how','what','does','your'].includes(t));
+
+  patterns.topicsCovered = cleanTerms;
+  patterns.keyTerms = new Set(cleanTerms);
+  patterns.questionStyles = [...new Set(patterns.questionStyles)];
+  if (patterns.questionStyles.length === 0) patterns.questionStyles = ['mcq','written','truefalse','fillin'];
+
+  // Derive learning objectives: what a student needs to KNOW to answer each question
+  patterns.conceptsToTeach = patterns.sampleQuestions.map(q => {
+    return { question: q.text, topicsNeeded: cleanTerms.filter(t => q.text.toLowerCase().includes(t) || allText.includes(t)) };
+  }).filter(c => c.topicsNeeded.length > 0);
+
+  return patterns;
+}
+
+// ============================================================
+// QUESTION GENERATOR — interactive, fun, Year 7-friendly
+// Types: MCQ (70%), True/False (15%), Select All That Apply (15%)
+// NO fill-in-blank, NO written answers
+// ============================================================
+function generateQuestions(facts, categories, count=10, filterCats=null, testPatterns=null) {
+  let pool = [...facts];
+  if (filterCats && filterCats.length>0) pool = pool.filter(f=>filterCats.includes(f.category));
+  if (pool.length<3) pool = [...facts];
+
+  const selected = pickRandom(pool, Math.min(count*2, pool.length));
+  const questions = [];
+
+  // 70% MCQ, 15% True/False, 15% Select-All
+  const typeWeights = ['mcq','mcq','mcq','mcq','mcq','mcq','mcq','truefalse','truefalse','selectall'];
+
+  for (let i=0; i<Math.min(count, selected.length); i++) {
+    const fact = selected[i];
+    const type = typeWeights[Math.floor(Math.random()*typeWeights.length)];
+    questions.push(createQuestion(fact, type, pool));
+  }
+  return shuffle(questions);
+}
+
+function createQuestion(fact, type, allFacts) {
+  const base = { id:genId(), fact, type, category:fact.category };
+  switch(type) {
+    case 'mcq': return createMCQ(base, allFacts);
+    case 'truefalse': return createTrueFalse(base, allFacts);
+    case 'selectall': return createSelectAll(base, allFacts);
+    default: return createMCQ(base, allFacts);
+  }
+}
+
+// ---- Helper: extract definition from a fact ----
+function getDefinition(fact) {
+  const m = fact.text.match(/^(?:An?\s+)?([A-Za-z][A-Za-z\s'']{2,35}?)\s+(?:is|are|refers to|means|represents|describes|occurs?|measures?|states?|uses?)\s+(.+?)(?:\.|$)/i);
+  return m ? { term: m[1].trim(), meaning: m[2].trim() } : null;
+}
+
+// ---- MCQ: Simple, clear, conceptual ----
+function createMCQ(base, allFacts) {
+  const def = getDefinition(base.fact);
+  const others = allFacts.filter(f=>f.id!==base.fact.id);
+  let question, correctAnswer, distractors;
+
+  // Strategy 1: "What is X?" with short answer options
+  if (def && others.length >= 3) {
+    question = `What is ${def.term.toLowerCase()}?`;
+    correctAnswer = def.meaning.charAt(0).toUpperCase() + def.meaning.slice(1);
+    // Get other definitions as wrong answers
+    const otherDefs = others.map(f=>getDefinition(f)).filter(Boolean).map(d=>d.meaning.charAt(0).toUpperCase()+d.meaning.slice(1));
+    distractors = otherDefs.length >= 3 ? pickRandom(otherDefs,3) : pickRandom(others,3).map(f=>f.text.split(/[.,]/)[0]);
+  }
+  // Strategy 2: "Which of these describes [category concept]?"
+  else {
+    const diffCat = others.filter(f=>f.category!==base.fact.category);
+    const pool = diffCat.length >= 3 ? diffCat : others;
+    question = `Which of these is true about ${base.fact.category}?`;
+    correctAnswer = base.fact.text.split(/[.]/)[0];
+    distractors = pickRandom(pool, 3).map(f=>f.text.split(/[.]/)[0]);
+  }
+
+  // Keep options short and readable
+  correctAnswer = correctAnswer.slice(0,100);
+  distractors = distractors.map(d => d.slice(0,100));
+
+  const options = shuffle([{text:correctAnswer,correct:true}, ...distractors.slice(0,3).map(d=>({text:d,correct:false}))]);
+  return { ...base, question, options, correctAnswer, explanation: base.fact.text + (base.fact.detail ? ' — ' + base.fact.detail : '') };
+}
+
+// ---- TRUE/FALSE: Clear statements, not tricky ----
+function createTrueFalse(base, allFacts) {
+  const isTrue = Math.random() > 0.45;
+  const def = getDefinition(base.fact);
+  const others = allFacts.filter(f=>f.id!==base.fact.id);
+  let statement, explanation;
+
+  if (isTrue) {
+    statement = base.fact.text.split('.')[0] + '.';
+    explanation = `Correct! ${base.fact.text}`;
+  } else {
+    // Make it meaningfully wrong
+    if (def) {
+      const otherDef = others.map(f=>getDefinition(f)).find(d=>d);
+      if (otherDef) {
+        statement = `${def.term} is ${otherDef.meaning}.`;
+      } else {
+        statement = `${def.term} has nothing to do with ${def.meaning}.`;
+      }
+    } else {
+      // Swap a key concept with one from a different category
+      const other = others.find(f=>f.category!==base.fact.category);
+      if (other) {
+        const otherDef = getDefinition(other);
+        if (otherDef) {
+          statement = `${otherDef.term} is part of ${base.fact.category}.`;
+        } else {
+          statement = base.fact.text.split('.')[0] + ' — this never happens.';
+        }
+      } else {
+        statement = base.fact.text.split('.')[0] + ' — this is impossible.';
+      }
+    }
+    explanation = `This is false. The correct info: ${base.fact.text}`;
+  }
+
+  return { ...base, question:`True or False: ${statement}`, correctAnswer:isTrue, explanation };
+}
+
+// ---- SELECT ALL THAT APPLY: Fun multi-select ----
+function createSelectAll(base, allFacts) {
+  const others = allFacts.filter(f=>f.id!==base.fact.id);
+  const sameCat = others.filter(f=>f.category===base.fact.category);
+  const diffCat = others.filter(f=>f.category!==base.fact.category);
+
+  let question, correctOptions, wrongOptions;
+
+  if (sameCat.length >= 1 && diffCat.length >= 2) {
+    // "Which of these are about [category]?"
+    question = `Select ALL that are related to ${base.fact.category}:`;
+    const correctFacts = [base.fact, ...pickRandom(sameCat, Math.min(1, sameCat.length))];
+    correctOptions = correctFacts.map(f => f.text.split('.')[0].slice(0,90));
+    wrongOptions = pickRandom(diffCat, 2).map(f => f.text.split('.')[0].slice(0,90));
+  } else {
+    // "Which of these statements are true?"
+    question = 'Select ALL the true statements:';
+    const correct2 = pickRandom(others, 1);
+    correctOptions = [base.fact, ...correct2].map(f => f.text.split('.')[0].slice(0,90));
+    // Generate false statements
+    wrongOptions = [];
+    if (others.length >= 2) {
+      const wrongFacts = pickRandom(others, 2);
+      wrongOptions = wrongFacts.map(f => {
+        const d = getDefinition(f);
+        return d ? `${d.term} has nothing to do with ${f.category}` : f.text.split('.')[0].slice(0,60) + ' — this never happens';
+      });
+    }
+  }
+
+  const options = shuffle([
+    ...correctOptions.map(t=>({text:t,correct:true})),
+    ...wrongOptions.map(t=>({text:t,correct:false}))
+  ]);
+
+  base.type = 'selectall';
+  return { ...base, question, options, explanation: base.fact.text + (base.fact.detail ? ' — ' + base.fact.detail : '') };
+}
+
+// ============================================================
+// AUTO-RESEARCH CONTENT GENERATOR
+// Generates curriculum-aligned learning content from subject + year level
+// ============================================================
+const CURRICULUM_BANK = {
+  'Mathematics': {
+    'Year 7': {
+      categories: ['Number & Place Value','Fractions & Decimals','Geometry','Statistics','Patterns & Algebra'],
+      facts: [
+        {t:'Integers include all positive and negative whole numbers, as well as zero.', c:'Number & Place Value', d:'The set of integers is written as {..., -3, -2, -1, 0, 1, 2, 3, ...}. They are used to represent quantities above and below zero, such as temperatures or debt.'},
+        {t:'To add integers with different signs, subtract the smaller absolute value from the larger and keep the sign of the larger.', c:'Number & Place Value', d:'For example, -8 + 5 = -3 because |8| > |5| and the sign of -8 is negative.'},
+        {t:'A fraction represents a part of a whole and is written as a numerator over a denominator.', c:'Fractions & Decimals', d:'The numerator tells how many parts you have. The denominator tells how many equal parts the whole is divided into.'},
+        {t:'Equivalent fractions are different fractions that represent the same value, such as 1/2 and 2/4.', c:'Fractions & Decimals', d:'You can find equivalent fractions by multiplying or dividing both numerator and denominator by the same number.'},
+        {t:'To convert a fraction to a decimal, divide the numerator by the denominator.', c:'Fractions & Decimals', d:'For example, 3/4 = 3 ÷ 4 = 0.75.'},
+        {t:'A percentage is a fraction expressed as a part of 100, represented with the % symbol.', c:'Fractions & Decimals', d:'50% means 50 out of 100, which equals 1/2 or 0.5.'},
+        {t:'The area of a rectangle is calculated by multiplying its length by its width.', c:'Geometry', d:'Area = length × width. The result is expressed in square units, such as cm² or m².'},
+        {t:'A triangle has three sides and three angles that always add up to 180 degrees.', c:'Geometry', d:'This is known as the angle sum property of a triangle and applies to all triangles regardless of type.'},
+        {t:'The mean (average) is calculated by adding all values and dividing by the number of values.', c:'Statistics', d:'For example, the mean of 4, 7, and 10 is (4+7+10)/3 = 7.'},
+        {t:'The median is the middle value when data is arranged in order from smallest to largest.', c:'Statistics', d:'If there is an even number of values, the median is the average of the two middle numbers.'},
+        {t:'In algebra, a variable is a letter that represents an unknown number.', c:'Patterns & Algebra', d:'Common variables include x, y, and n. They allow us to write general rules and equations.'},
+        {t:'An algebraic expression combines numbers, variables, and operations but has no equals sign.', c:'Patterns & Algebra', d:'For example, 3x + 5 is an expression, while 3x + 5 = 11 is an equation.'},
+      ]
+    },
+    'Year 8': {
+      categories: ['Algebra','Linear Equations','Ratios & Rates','Geometry & Measurement','Data & Probability'],
+      facts: [
+        {t:'An algebraic expression is a mathematical phrase that contains numbers, variables, and operations.', c:'Algebra', d:'Variables are symbols, usually letters, that represent unknown values.'},
+        {t:'Like terms are terms that have the same variable raised to the same power.', c:'Algebra', d:'For example, 3x and 7x are like terms because they both contain x to the first power.'},
+        {t:'The distributive property states that a(b + c) = ab + ac.', c:'Algebra', d:'This is used to expand brackets in algebraic expressions.'},
+        {t:'A linear equation has the form ax + b = c, where a, b, and c are constants.', c:'Linear Equations', d:'To solve, isolate x by performing inverse operations on both sides.'},
+        {t:'The order of operations (BODMAS) dictates: Brackets, Orders, Division, Multiplication, Addition, Subtraction.', c:'Algebra', d:'Always work from left to right within each level of priority.'},
+        {t:'A ratio compares two or more quantities of the same kind, written as a:b.', c:'Ratios & Rates', d:'Ratios can be simplified just like fractions by dividing by common factors.'},
+        {t:'A rate compares two quantities of different kinds, such as speed in km per hour.', c:'Ratios & Rates', d:'Unit rate expresses the rate for one unit of the second quantity, e.g. $5 per kg.'},
+        {t:'The volume of a rectangular prism equals length times width times height.', c:'Geometry & Measurement', d:'Volume is measured in cubic units such as cm³ or m³.'},
+        {t:'Parallel lines never meet and are always the same distance apart.', c:'Geometry & Measurement', d:'When a transversal crosses parallel lines, it creates corresponding, alternate, and co-interior angles.'},
+        {t:'Probability ranges from 0 (impossible) to 1 (certain).', c:'Data & Probability', d:'A probability of 0.5 means there is an equal chance of the event occurring or not occurring.'},
+        {t:'Factoring is the reverse of expanding, such as 6x + 12 = 6(x + 2).', c:'Algebra', d:'Find the highest common factor of all terms and write it outside the brackets.'},
+        {t:'An inequality uses symbols like < or > instead of an equals sign.', c:'Linear Equations', d:'Inequalities represent a range of possible solutions rather than a single value.'},
+      ]
+    },
+    'Year 9': {
+      categories: ['Linear & Non-linear','Indices','Pythagoras','Trigonometry','Financial Maths'],
+      facts: [
+        {t:'Index notation is a shorthand for repeated multiplication: a^n means a multiplied by itself n times.', c:'Indices', d:'For example, 2^4 = 2 × 2 × 2 × 2 = 16. The base is 2 and the index (exponent) is 4.'},
+        {t:'The index law for multiplication states: a^m × a^n = a^(m+n).', c:'Indices', d:'When multiplying powers with the same base, add the exponents.'},
+        {t:'Pythagoras theorem states that in a right-angled triangle, a² + b² = c² where c is the hypotenuse.', c:'Pythagoras', d:'The hypotenuse is the longest side, opposite the right angle.'},
+        {t:'To find the hypotenuse, use c = √(a² + b²).', c:'Pythagoras', d:'For example, if a=3 and b=4, then c = √(9+16) = √25 = 5.'},
+        {t:'Trigonometric ratios relate the angles and sides of right-angled triangles: sin, cos, and tan.', c:'Trigonometry', d:'SOH-CAH-TOA: Sin = Opposite/Hypotenuse, Cos = Adjacent/Hypotenuse, Tan = Opposite/Adjacent.'},
+        {t:'Simple interest is calculated using the formula I = PRT, where P is principal, R is rate, and T is time.', c:'Financial Maths', d:'Simple interest is only calculated on the original principal amount.'},
+        {t:'Compound interest is calculated on the principal plus any previously accumulated interest.', c:'Financial Maths', d:'The formula is A = P(1 + r/n)^(nt) where n is compounding frequency.'},
+        {t:'A linear graph is a straight line with a constant rate of change (gradient).', c:'Linear & Non-linear', d:'The equation y = mx + b describes a line where m is the gradient and b is the y-intercept.'},
+        {t:'The gradient of a line measures its steepness and equals rise over run.', c:'Linear & Non-linear', d:'A positive gradient slopes upward left to right; a negative gradient slopes downward.'},
+        {t:'A quadratic equation contains a squared variable and its graph is a parabola.', c:'Linear & Non-linear', d:'The standard form is y = ax² + bx + c. If a > 0, the parabola opens upward.'},
+        {t:'Scientific notation expresses very large or small numbers as a × 10^n where 1 ≤ a < 10.', c:'Indices', d:'For example, 5,600,000 = 5.6 × 10^6 and 0.00034 = 3.4 × 10^-4.'},
+      ]
+    },
+    'Year 10': {
+      categories: ['Quadratics','Simultaneous Equations','Probability','Measurement','Functions'],
+      facts: [
+        {t:'The quadratic formula x = (-b ± √(b²-4ac)) / 2a solves any quadratic equation ax²+bx+c=0.', c:'Quadratics', d:'The discriminant b²-4ac determines the number of solutions: positive = 2, zero = 1, negative = none.'},
+        {t:'Simultaneous equations are two or more equations with the same unknown variables solved together.', c:'Simultaneous Equations', d:'Methods include substitution, elimination, and graphical intersection.'},
+        {t:'Conditional probability is the probability of an event given that another event has occurred: P(A|B).', c:'Probability', d:'P(A|B) = P(A and B) / P(B), provided P(B) > 0.'},
+        {t:'Surface area is the total area of all faces of a three-dimensional shape.', c:'Measurement', d:'For a cylinder: SA = 2πr² + 2πrh, combining the two circular bases and the curved surface.'},
+        {t:'A function assigns exactly one output for each input, often written as f(x).', c:'Functions', d:'The set of all possible inputs is the domain; the set of all possible outputs is the range.'},
+        {t:'Completing the square rewrites ax²+bx+c in the form a(x-h)²+k to find the vertex.', c:'Quadratics', d:'The vertex of the parabola is at the point (h, k).'},
+        {t:'Tree diagrams show all possible outcomes of sequential events and help calculate probabilities.', c:'Probability', d:'Multiply along branches for combined probability; add between branches for alternative outcomes.'},
+        {t:'The elimination method solves simultaneous equations by adding or subtracting to remove a variable.', c:'Simultaneous Equations', d:'Multiply equations if needed so that one variable has matching coefficients.'},
+      ]
+    }
+  },
+  'Science': {
+    'Year 7': {
+      categories: ['Living Things','Mixtures','Forces','Earth & Space'],
+      facts: [
+        {t:'All living things share characteristics: movement, respiration, sensitivity, growth, reproduction, excretion, and nutrition (MRS GREN).', c:'Living Things', d:'These are the seven life processes used to classify something as living.'},
+        {t:'Cells are the basic building blocks of all living organisms.', c:'Living Things', d:'Plant cells have a cell wall and chloroplasts; animal cells do not.'},
+        {t:'A mixture contains two or more substances that are not chemically bonded together.', c:'Mixtures', d:'Mixtures can be separated using physical methods like filtration, evaporation, and distillation.'},
+        {t:'Filtration separates an insoluble solid from a liquid by passing it through filter paper.', c:'Mixtures', d:'The solid that remains on the filter paper is called the residue; the liquid that passes through is the filtrate.'},
+        {t:'A force is a push or pull that can change the speed, direction, or shape of an object.', c:'Forces', d:'Forces are measured in newtons (N) using a spring balance or force meter.'},
+        {t:'Gravity is a force that pulls objects toward each other; on Earth it gives weight to objects.', c:'Forces', d:'The gravitational field strength on Earth is approximately 9.8 N/kg.'},
+        {t:'The Earth revolves around the Sun once every 365.25 days, creating one year.', c:'Earth & Space', d:'The extra 0.25 day is why we have a leap year every four years.'},
+        {t:'The Moon orbits the Earth approximately once every 27.3 days.', c:'Earth & Space', d:'The phases of the Moon are caused by the changing angle of sunlight illuminating its surface as seen from Earth.'},
+      ]
+    },
+    'Year 8': {
+      categories: ['Cells & Body Systems','Chemical Reactions','Energy','Rocks & Geology'],
+      facts: [
+        {t:'The digestive system breaks down food into nutrients that can be absorbed into the bloodstream.', c:'Cells & Body Systems', d:'Key organs include the mouth, oesophagus, stomach, small intestine, and large intestine.'},
+        {t:'A chemical reaction occurs when substances interact to form new substances with different properties.', c:'Chemical Reactions', d:'Signs of a chemical reaction include colour change, gas production, temperature change, and precipitate formation.'},
+        {t:'The law of conservation of mass states that matter cannot be created or destroyed in a chemical reaction.', c:'Chemical Reactions', d:'The total mass of reactants equals the total mass of products.'},
+        {t:'Energy can be transformed from one form to another but cannot be created or destroyed.', c:'Energy', d:'This is the law of conservation of energy. Forms include kinetic, potential, thermal, electrical, and chemical energy.'},
+        {t:'The three main types of rock are igneous, sedimentary, and metamorphic.', c:'Rocks & Geology', d:'Igneous rocks form from cooled magma, sedimentary from compressed sediments, and metamorphic from heat and pressure.'},
+        {t:'Kinetic energy is the energy an object has due to its motion.', c:'Energy', d:'The formula is KE = ½mv², where m is mass and v is velocity.'},
+        {t:'Photosynthesis is the process by which plants convert sunlight, water, and CO₂ into glucose and oxygen.', c:'Cells & Body Systems', d:'The equation is: 6CO₂ + 6H₂O → C₆H₁₂O₆ + 6O₂. It occurs in the chloroplasts.'},
+      ]
+    }
+  },
+  'English': {
+    'Year 8': {
+      categories: ['Grammar','Persuasive Writing','Narrative','Poetry & Figurative Language'],
+      facts: [
+        {t:'A complex sentence contains an independent clause and at least one dependent clause.', c:'Grammar', d:'The dependent clause cannot stand alone as a sentence. Example: "Although it rained, we still went outside."'},
+        {t:'Persuasive writing aims to convince the reader to agree with the author\'s point of view.', c:'Persuasive Writing', d:'Techniques include rhetorical questions, emotive language, repetition, and expert opinions.'},
+        {t:'Ethos, pathos, and logos are the three modes of persuasion identified by Aristotle.', c:'Persuasive Writing', d:'Ethos appeals to credibility, pathos to emotion, and logos to logic and evidence.'},
+        {t:'A simile compares two things using "like" or "as", such as "brave as a lion".', c:'Poetry & Figurative Language', d:'Similes create vivid imagery by drawing a comparison the reader can visualise.'},
+        {t:'A metaphor states that one thing IS another, such as "time is a thief".', c:'Poetry & Figurative Language', d:'Unlike similes, metaphors do not use "like" or "as" — they make a direct comparison.'},
+        {t:'Narrative writing tells a story with a beginning (orientation), middle (complication), and end (resolution).', c:'Narrative', d:'Good narratives use descriptive language, dialogue, and varied sentence structure.'},
+        {t:'First person narration uses "I" and gives the reader direct access to the narrator\'s thoughts.', c:'Narrative', d:'This creates intimacy but limits the reader to only what the narrator knows and experiences.'},
+        {t:'Alliteration is the repetition of the same consonant sound at the beginning of closely connected words.', c:'Poetry & Figurative Language', d:'Example: "Peter Piper picked a peck of pickled peppers." It creates rhythm and emphasis.'},
+      ]
+    }
+  }
+};
+
+function generateAutoResearchContent(subject, yearLevel, packageName, testPatterns) {
+  // ============================================================
+  // STRATEGY: If we have practice test patterns, generate content
+  // that specifically teaches what the student needs to ANSWER
+  // those practice test questions. This is the PRIMARY path.
+  // ============================================================
+
+  if (testPatterns && testPatterns.topicsCovered.length > 0) {
+    return generateFromPracticeTest(testPatterns, subject, yearLevel, packageName);
+  }
+
+  // Fallback: no practice test — use curriculum bank
+  const subjectBank = CURRICULUM_BANK[subject];
+  if (subjectBank && subjectBank[yearLevel]) {
+    const data = subjectBank[yearLevel];
+    return { facts: data.facts.map(f => ({id:genId(),text:f.t,detail:f.d,category:f.c,difficulty:'medium'})), categories:data.categories, generated:true };
+  }
+  if (subjectBank) {
+    const yr = Object.keys(subjectBank)[0];
+    if (yr) { const data=subjectBank[yr]; return { facts:data.facts.map(f=>({id:genId(),text:f.t,detail:f.d,category:f.c,difficulty:'medium'})), categories:data.categories, generated:true, note:`Content from ${yr} curriculum` }; }
+  }
+
+  // Last resort: generate from package name/subject keywords
+  return generateGenericContent(subject || packageName, yearLevel);
+}
+
+// ==============================================================
+// PRACTICE-TEST-DRIVEN CONTENT GENERATOR
+// Analyses the practice test questions and creates learning material
+// that teaches the concepts needed to answer each question
+// ==============================================================
+const TOPIC_KNOWLEDGE_BANK = {
+  // --- GEOGRAPHY / EARTH SCIENCE ---
+  'water cycle': [
+    {t:'The water cycle (also called the hydrological cycle) describes the continuous movement of water on, above, and below the surface of the Earth.', d:'Water moves between oceans, atmosphere, and land in an endless cycle driven primarily by the Sun\'s energy.', c:'The Water Cycle'},
+    {t:'The water cycle has no starting point, but the ocean is where most of Earth\'s water exists.', d:'About 97% of all water on Earth is in the oceans. The cycle is continuous and has been operating for billions of years.', c:'The Water Cycle'},
+  ],
+  'evaporation': [
+    {t:'Evaporation is the process where liquid water is heated by the Sun and changes into water vapour (gas).', d:'The Sun\'s energy causes water molecules at the surface of oceans, lakes, and rivers to gain enough energy to escape into the atmosphere as gas.', c:'Evaporation'},
+    {t:'Evaporation happens faster when temperatures are higher, when there is wind, and when the air is dry.', d:'These factors increase the rate at which water molecules escape from the liquid surface into the air.', c:'Evaporation'},
+  ],
+  'transpiration': [
+    {t:'Transpiration is the process by which plants release water vapour through tiny pores in their leaves called stomata.', d:'Plants absorb water through their roots, use it for photosynthesis, and release excess water vapour into the atmosphere through their leaves.', c:'Transpiration'},
+    {t:'Transpiration accounts for about 10% of all water entering the atmosphere, making plants significant contributors to the water cycle.', d:'Forests and large areas of vegetation can release enormous amounts of water vapour into the air each day.', c:'Transpiration'},
+  ],
+  'condensation': [
+    {t:'Condensation occurs when water vapour in the atmosphere cools and changes back into tiny liquid water droplets, forming clouds.', d:'As warm moist air rises, it cools at higher altitudes. When it reaches the dew point temperature, the vapour condenses around tiny dust particles to form cloud droplets.', c:'Condensation'},
+    {t:'Clouds are formed by condensation — millions of tiny water droplets or ice crystals clinging to particles of dust in the atmosphere.', d:'Different types of clouds (cumulus, stratus, cirrus) form at different altitudes and indicate different weather conditions.', c:'Condensation'},
+  ],
+  'precipitation': [
+    {t:'Precipitation is any form of water that falls from clouds to the Earth\'s surface, including rain, snow, sleet, and hail.', d:'Precipitation occurs when water droplets in clouds combine and grow heavy enough that air currents can no longer support them.', c:'Precipitation'},
+    {t:'Rain is the most common form of precipitation, but snow forms when temperatures in the cloud are below freezing.', d:'Sleet forms when rain passes through a cold layer of air and partially freezes. Hail forms in thunderstorms when ice is tossed up and down, growing larger.', c:'Precipitation'},
+  ],
+  'runoff': [
+    {t:'Runoff is water that flows over the land surface when the ground cannot absorb any more water.', d:'After rainfall, water that does not soak into the ground flows downhill across the surface, collecting in streams, rivers, and eventually returning to the ocean.', c:'Runoff & Collection'},
+    {t:'Runoff can cause erosion by carrying soil and sediment from land into waterways.', d:'The speed and volume of runoff depends on factors like rainfall intensity, slope of the land, soil type, and vegetation cover.', c:'Runoff & Collection'},
+  ],
+  'infiltration': [
+    {t:'Infiltration is the process where water soaks into the ground through the soil surface.', d:'The rate of infiltration depends on soil type, vegetation, slope, and how wet the soil already is. Sandy soil absorbs water faster than clay.', c:'Infiltration & Groundwater'},
+    {t:'Water that infiltrates deep into the ground becomes groundwater, which is stored in underground layers of rock called aquifers.', d:'Groundwater can remain underground for thousands of years. It feeds springs and wells, and eventually flows back to rivers and oceans.', c:'Infiltration & Groundwater'},
+  ],
+  'groundwater': [
+    {t:'Groundwater is water stored underground in the spaces between rocks and soil particles in formations called aquifers.', d:'Aquifers are important sources of drinking water. Groundwater slowly moves through rock and eventually feeds into rivers, lakes, and the ocean.', c:'Infiltration & Groundwater'},
+  ],
+  'climate': [
+    {t:'Climate is the average weather conditions in a region over a long period of time, usually 30 years or more.', d:'Climate includes average temperature, rainfall, humidity, and wind patterns. It is different from weather, which describes day-to-day conditions.', c:'Climate & Latitude'},
+    {t:'The main factors affecting climate are latitude, altitude, distance from the sea, ocean currents, and prevailing winds.', d:'Latitude is the most important factor — areas near the equator are warmest, while polar regions are coldest.', c:'Climate & Latitude'},
+  ],
+  'latitude': [
+    {t:'Latitude is the distance north or south of the Equator, measured in degrees from 0° at the Equator to 90° at the poles.', d:'Lines of latitude run horizontally around the Earth. They are also called parallels because they are always the same distance apart.', c:'Climate & Latitude'},
+    {t:'The Equator (0°) receives the most direct sunlight and has the warmest climate year-round.', d:'As you move away from the Equator towards the poles, the Sun\'s rays hit at a lower angle, spreading heat over a larger area, making it cooler.', c:'Climate & Latitude'},
+    {t:'The Tropic of Cancer (23.5°N) and Tropic of Capricorn (23.5°S) mark the boundaries of the tropical zone.', d:'Between these two lines, the Sun can be directly overhead at some point during the year. This region has warm temperatures year-round.', c:'Climate & Latitude'},
+    {t:'The Arctic Circle (66.5°N) and Antarctic Circle (66.5°S) mark the boundaries of the polar zones.', d:'Inside these circles, there are periods of 24-hour daylight in summer and 24-hour darkness in winter.', c:'Climate & Latitude'},
+  ],
+  'equator': [
+    {t:'The Equator is an imaginary line at 0° latitude that divides the Earth into the Northern and Southern Hemispheres.', d:'Countries on or near the Equator experience hot temperatures, high humidity, and typically have tropical rainforest or savanna climates.', c:'Climate & Latitude'},
+  ],
+  'hemisphere': [
+    {t:'A hemisphere is half of the Earth, divided either by the Equator (Northern/Southern) or the Prime Meridian (Eastern/Western).', d:'The Northern Hemisphere contains most of the world\'s land and population. Seasons are opposite between hemispheres.', c:'Climate & Latitude'},
+  ],
+  // --- MATHS ---
+  'algebra': [
+    {t:'Algebra uses letters (variables) to represent unknown numbers in mathematical expressions and equations.', d:'Variables like x, y, n allow us to write general rules that work for many different values.', c:'Algebra'},
+    {t:'An equation has an equals sign (=) and shows that two expressions have the same value.', d:'For example, 2x + 3 = 11 means "twice some number plus three equals eleven". Solving means finding x = 4.', c:'Algebra'},
+  ],
+  'fraction': [
+    {t:'A fraction represents a part of a whole, written as numerator/denominator.', d:'The numerator (top) says how many parts you have; the denominator (bottom) says how many equal parts the whole is divided into.', c:'Fractions & Decimals'},
+  ],
+  'percentage': [
+    {t:'A percentage expresses a number as a fraction of 100, using the % symbol.', d:'25% means 25 out of 100. To convert a fraction to a percentage, divide then multiply by 100.', c:'Percentages'},
+  ],
+  'ratio': [
+    {t:'A ratio compares two quantities, showing how many times one value contains another.', d:'Written as a:b or a/b. For example, a ratio of 3:1 means for every 3 of one thing, there is 1 of the other.', c:'Ratios'},
+  ],
+  'probability': [
+    {t:'Probability measures how likely an event is to occur, expressed as a number between 0 and 1.', d:'0 means impossible, 1 means certain, and 0.5 means equally likely. P(event) = favourable outcomes / total outcomes.', c:'Probability'},
+  ],
+  'force': [
+    {t:'A force is a push or pull that can change an object\'s speed, direction, or shape.', d:'Forces are measured in newtons (N). Common forces include gravity, friction, air resistance, and applied force.', c:'Forces'},
+  ],
+  'gravity': [
+    {t:'Gravity is a force of attraction between all objects with mass, pulling them toward each other.', d:'On Earth, gravity gives objects weight and pulls them toward the centre of the planet at 9.8 m/s².', c:'Forces'},
+  ],
+  'photosynthesis': [
+    {t:'Photosynthesis is the process by which green plants use sunlight, water, and carbon dioxide to produce glucose and oxygen.', d:'The equation is: 6CO₂ + 6H₂O + light energy → C₆H₁₂O₆ + 6O₂. It occurs in chloroplasts.', c:'Photosynthesis'},
+  ],
+  'ecosystem': [
+    {t:'An ecosystem is a community of living organisms interacting with each other and their physical environment.', d:'Ecosystems include both biotic (living) components like plants and animals, and abiotic (non-living) components like water, soil, and sunlight.', c:'Ecosystems'},
+  ],
+  'erosion': [
+    {t:'Erosion is the process by which rock and soil are worn away and transported by wind, water, or ice.', d:'Water erosion is the most common type. Rivers, waves, and rainfall all cause erosion that shapes the landscape over time.', c:'Erosion & Weathering'},
+  ],
+};
+
+function generateFromPracticeTest(testPatterns, subject, yearLevel, packageName) {
+  const facts = [];
+  const categoriesSet = new Set();
+  const matchedTopics = [];
+  const unmatchedTopics = [];
+
+  // For each topic found in the practice test, look up teaching material
+  testPatterns.topicsCovered.forEach(topic => {
+    const normalised = topic.toLowerCase().trim();
+    const bankEntry = TOPIC_KNOWLEDGE_BANK[normalised];
+
+    if (bankEntry) {
+      matchedTopics.push(topic);
+      bankEntry.forEach(item => {
+        facts.push({ id:genId(), text:item.t, detail:item.d, category:item.c, difficulty:item.t.length>100?'hard':'medium' });
+        categoriesSet.add(item.c);
+      });
+    } else {
+      // Try partial matching
+      const partialKey = Object.keys(TOPIC_KNOWLEDGE_BANK).find(k => k.includes(normalised) || normalised.includes(k));
+      if (partialKey) {
+        matchedTopics.push(topic);
+        TOPIC_KNOWLEDGE_BANK[partialKey].forEach(item => {
+          facts.push({ id:genId(), text:item.t, detail:item.d, category:item.c, difficulty:'medium' });
+          categoriesSet.add(item.c);
+        });
+      } else {
+        unmatchedTopics.push(topic);
+      }
+    }
+  });
+
+  // For unmatched topics, try the CURRICULUM_BANK as secondary source
+  if (unmatchedTopics.length > 0 && subject) {
+    const subjectBank = CURRICULUM_BANK[subject];
+    if (subjectBank) {
+      Object.values(subjectBank).forEach(yearData => {
+        yearData.facts.forEach(f => {
+          const fText = (f.t + ' ' + f.d).toLowerCase();
+          if (unmatchedTopics.some(t => fText.includes(t.toLowerCase()))) {
+            facts.push({ id:genId(), text:f.t, detail:f.d, category:f.c, difficulty:'medium' });
+            categoriesSet.add(f.c);
+          }
+        });
+      });
+    }
+  }
+
+  // Deduplicate facts
+  const seen = new Set();
+  const uniqueFacts = facts.filter(f => { if (seen.has(f.text)) return false; seen.add(f.text); return true; });
+
+  // Generate note about what was matched
+  const note = matchedTopics.length > 0
+    ? `Generated learning content for: ${matchedTopics.join(', ')}` + (unmatchedTopics.length > 0 ? `. Could not find content for: ${unmatchedTopics.join(', ')}` : '')
+    : `Topics detected but no specific content found. Upload research material for: ${unmatchedTopics.join(', ')}`;
+
+  if (uniqueFacts.length === 0) {
+    // Absolute fallback — practice test had topics we don't have content for
+    return generateGenericContent(subject || packageName, yearLevel, `Upload learning material covering: ${testPatterns.topicsCovered.join(', ')}`);
+  }
+
+  return { facts: uniqueFacts, categories: [...categoriesSet], generated: true, note };
+}
+
+function generateGenericContent(topic, yearLevel, customNote) {
+  const facts = [
+    {t:`${topic} requires understanding of key concepts, definitions, and relationships between ideas.`, d:'Focus on understanding WHY things work, not just memorising facts.', c:topic},
+    {t:'When studying, focus on understanding concepts deeply enough to explain them in your own words.', d:'The Feynman Technique: if you can teach it simply, you understand it. If not, go back and study more.', c:'Study Strategy'},
+    {t:'Practice tests are most effective when you review your mistakes and understand why the correct answer is right.', d:'Don\'t just check if you got it right — understand the reasoning behind each answer.', c:'Study Strategy'},
+  ];
+  return {
+    facts: facts.map(f => ({id:genId(), text:f.t, detail:f.d, category:f.c, difficulty:'medium'})),
+    categories: [topic, 'Study Strategy'],
+    generated: true,
+    note: customNote || `Basic content generated for ${topic}. Upload subject-specific materials for better learning content.`
+  };
+}
+
+// ============================================================
+// DEMO DATA - pre-loaded sample package
+// ============================================================
+function createDemoPackage() {
+  const demoText = `Algebra Fundamentals
+
+An algebraic expression is a mathematical phrase that contains numbers, variables, and operations. Variables are symbols, usually letters, that represent unknown values.
+
+The order of operations (BODMAS/PEMDAS) dictates the sequence: Brackets first, then Orders (powers), Division, Multiplication, Addition, and Subtraction.
+
+A linear equation has the form ax + b = c, where a, b, and c are constants and x is the variable. To solve, isolate x by performing inverse operations.
+
+Like terms are terms that have the same variable raised to the same power. For example, 3x and 7x are like terms because they both contain x to the first power.
+
+The distributive property states that a(b + c) = ab + ac. This is used to expand brackets in algebraic expressions.
+
+An inequality uses symbols like < (less than), > (greater than), ≤ (less than or equal to), or ≥ (greater than or equal to) instead of an equals sign.
+
+Factoring is the reverse of expanding. For example, 6x + 12 can be factored as 6(x + 2) by taking out the common factor of 6.
+
+A quadratic equation has the form ax² + bx + c = 0. The solutions can be found using factoring, completing the square, or the quadratic formula.`;
+
+  const { facts, categories } = extractResearchFacts(demoText, 'Algebra');
+  return {
+    id: 'demo-algebra',
+    name: 'Year 8 Algebra Fundamentals',
+    subject: 'Mathematics',
+    yearLevel: 'Year 8',
+    description: 'Core algebra concepts including expressions, equations, and factoring.',
+    status: 'published',
+    autoResearch: false,
+    authorId: 'demo-author',
+    authorName: 'Ms. Johnson',
+    createdAt: Date.now() - 86400000,
+    updatedAt: Date.now(),
+    content: [{ id: genId(), name: 'algebra-fundamentals.txt', type: CONTENT_TYPES.RESEARCH, text: demoText, addedAt: Date.now() }],
+    facts,
+    categories: [...categories, 'Algebra'],
+    testPatterns: null
+  };
+}
+
+// ============================================================
+// APP — Firebase auth with fallback to local mode
+// ============================================================
+function App() {
+  const [user, setUser] = useState(null); // { id, name, email, role }
+  const [packages, setPackages] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [authReady, setAuthReady] = useState(!firebaseConfigured);
+
+  // Listen for Firebase auth state
+  useEffect(() => {
+    if (!firebaseConfigured) { setLoading(false); setPackages([createDemoPackage()]); return; }
+    const unsub = fb_auth.onAuthStateChanged(async (fbUser) => {
+      if (fbUser) {
+        const profile = await DB.getUser(fbUser.uid);
+        if (profile) {
+          setUser({ id: fbUser.uid, name: profile.name, email: fbUser.email, role: profile.role });
+        } else {
+          // User exists in auth but not in DB yet — shouldn't happen, but handle gracefully
+          setUser({ id: fbUser.uid, name: fbUser.email, email: fbUser.email, role: 'learner' });
+        }
+      } else {
+        setUser(null);
+      }
+      setAuthReady(true);
+      setLoading(false);
+    });
+    return () => unsub();
+  }, []);
+
+  // Load packages from Firestore
+  useEffect(() => {
+    if (!firebaseConfigured || !user) return;
+    DB.loadPackages().then(pkgs => {
+      if (pkgs.length === 0) setPackages([createDemoPackage()]);
+      else setPackages(pkgs);
+    });
+  }, [user]);
+
+  // Save package helper
+  const savePackage = (pkg) => {
+    setPackages(prev => {
+      const exists = prev.find(p=>p.id===pkg.id);
+      const updated = exists ? prev.map(p=>p.id===pkg.id ? pkg : p) : [pkg, ...prev];
+      if (firebaseConfigured) DB.savePackage(pkg);
+      return updated;
+    });
+  };
+
+  const deletePackage = (id) => {
+    setPackages(prev => prev.filter(p=>p.id!==id));
+    if (firebaseConfigured) DB.deletePackage(id);
+  };
+
+  const handleLogout = () => {
+    if (firebaseConfigured) fb_auth.signOut();
+    else setUser(null);
+  };
+
+  if (loading) return <div className="app"><div className="gradient-bg"/><div className="processing"><div className="processing-spinner"/><h3>Loading StudyFlow...</h3></div></div>;
+  if (!authReady || !user) return <AuthScreen onLogin={setUser} />;
+
+  return user.role === 'author'
+    ? <AuthorApp user={user} packages={packages} setPackages={setPackages} onSavePkg={savePackage} onDeletePkg={deletePackage} onLogout={handleLogout} />
+    : <LearnerApp user={user} packages={packages.filter(p=>p.status==='published')} onLogout={handleLogout} />;
+}
+
+// ============================================================
+// AUTH SCREEN — Login, Sign Up, Forgot Password
+// ============================================================
+function AuthScreen({ onLogin }) {
+  const [mode, setMode] = useState('login'); // login, signup, forgot
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [name, setName] = useState('');
+  const [role, setRole] = useState('learner');
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const resetForm = () => { setError(''); setSuccess(''); setPassword(''); };
+
+  const handleLogin = async () => {
+    if (!email || !password) { setError('Please enter email and password'); return; }
+    setBusy(true); setError('');
+    if (firebaseConfigured) {
+      try {
+        const cred = await fb_auth.signInWithEmailAndPassword(email, password);
+        // onAuthStateChanged will handle the rest
+      } catch(e) {
+        setError(e.code === 'auth/user-not-found' ? 'No account found with that email' :
+                 e.code === 'auth/wrong-password' ? 'Incorrect password' :
+                 e.code === 'auth/invalid-email' ? 'Invalid email address' :
+                 e.code === 'auth/invalid-credential' ? 'Incorrect email or password' :
+                 'Login failed: ' + e.message);
+      }
+    } else {
+      // Fallback: local mode (no Firebase)
+      onLogin({ id: genId(), name: email.split('@')[0], email, role: 'author' });
+    }
+    setBusy(false);
+  };
+
+  const handleSignup = async () => {
+    if (!name.trim()) { setError('Please enter your name'); return; }
+    if (!email || !password) { setError('Please enter email and password'); return; }
+    if (password.length < 6) { setError('Password must be at least 6 characters'); return; }
+    setBusy(true); setError('');
+    if (firebaseConfigured) {
+      try {
+        const cred = await fb_auth.createUserWithEmailAndPassword(email, password);
+        await DB.saveUser(cred.user.uid, { name: name.trim(), email, role, createdAt: Date.now() });
+        // onAuthStateChanged will handle the rest
+      } catch(e) {
+        setError(e.code === 'auth/email-already-in-use' ? 'An account with that email already exists' :
+                 e.code === 'auth/weak-password' ? 'Password is too weak' :
+                 'Signup failed: ' + e.message);
+      }
+    } else {
+      onLogin({ id: genId(), name: name.trim(), email, role });
+    }
+    setBusy(false);
+  };
+
+  const handleForgot = async () => {
+    if (!email) { setError('Please enter your email'); return; }
+    setBusy(true); setError('');
+    if (firebaseConfigured) {
+      try {
+        await fb_auth.sendPasswordResetEmail(email);
+        setSuccess('Password reset email sent! Check your inbox.');
+      } catch(e) { setError('Could not send reset email: ' + e.message); }
+    } else { setError('Password reset requires Firebase to be configured.'); }
+    setBusy(false);
+  };
+
+  return (
+    <div className="app">
+      <div className="gradient-bg" />
+      <div className="login-screen">
+        <div className="login-box fade-in">
+          <div className="login-logo">
+            <h1>StudyFlow</h1>
+            <p>Interactive learning for high school students</p>
+          </div>
+
+          {!firebaseConfigured && (
+            <div className="config-warning">
+              <h3>⚠️ Firebase Not Configured</h3>
+              <p>The app is running in demo mode. To enable real login, database, and sharing, follow the <strong>SETUP-GUIDE.md</strong> and add your Firebase config to this file.</p>
+              <p style={{marginTop:8}}>Look for <code>PASTE YOUR API KEY HERE</code> in the source code.</p>
+            </div>
+          )}
+
+          {error && <div className="auth-error">{error}</div>}
+          {success && <div className="auth-success">{success}</div>}
+
+          {mode === 'login' && (
+            <>
+              <div className="login-field">
+                <label>Email</label>
+                <input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="your@email.com" />
+              </div>
+              <div className="login-field">
+                <label>Password</label>
+                <input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="Your password"
+                  onKeyDown={e=>{ if(e.key==='Enter') handleLogin(); }} />
+              </div>
+              <button className="login-btn learner-btn" onClick={handleLogin} disabled={busy}>
+                {busy ? 'Logging in...' : '🔐 Log In'}
+              </button>
+              <div className="auth-footer">
+                <button className="auth-link" onClick={()=>{resetForm();setMode('forgot');}}>Forgot password?</button>
+                {' · '}
+                <button className="auth-link" onClick={()=>{resetForm();setMode('signup');}}>Create account</button>
+              </div>
+            </>
+          )}
+
+          {mode === 'signup' && (
+            <>
+              <div className="login-field">
+                <label>Your Name</label>
+                <input value={name} onChange={e=>setName(e.target.value)} placeholder="Enter your name" />
+              </div>
+              <div className="login-field">
+                <label>Email</label>
+                <input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="your@email.com" />
+              </div>
+              <div className="login-field">
+                <label>Password</label>
+                <input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="At least 6 characters" />
+              </div>
+              <div className="login-field">
+                <label>I am a...</label>
+                <div className="role-selector">
+                  <div className={`role-option ${role==='learner'?'selected':''}`} onClick={()=>setRole('learner')}>
+                    <div className="role-icon">🎓</div>
+                    <div className="role-name">Student</div>
+                    <div className="role-desc">Take courses & tests</div>
+                  </div>
+                  <div className={`role-option ${role==='author'?'selected':''}`} onClick={()=>setRole('author')}>
+                    <div className="role-icon">✏️</div>
+                    <div className="role-name">Author / Teacher</div>
+                    <div className="role-desc">Create & publish courses</div>
+                  </div>
+                </div>
+              </div>
+              <button className="login-btn learner-btn" onClick={handleSignup} disabled={busy}>
+                {busy ? 'Creating account...' : '🚀 Create Account'}
+              </button>
+              <div className="auth-footer">
+                Already have an account? <button className="auth-link" onClick={()=>{resetForm();setMode('login');}}>Log in</button>
+              </div>
+            </>
+          )}
+
+          {mode === 'forgot' && (
+            <>
+              <div className="login-field">
+                <label>Email</label>
+                <input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="your@email.com" />
+              </div>
+              <button className="login-btn learner-btn" onClick={handleForgot} disabled={busy}>
+                {busy ? 'Sending...' : '📧 Send Reset Email'}
+              </button>
+              <div className="auth-footer">
+                <button className="auth-link" onClick={()=>{resetForm();setMode('login');}}>Back to login</button>
+              </div>
+            </>
+          )}
+
+          {!firebaseConfigured && mode === 'login' && (
+            <>
+              <div className="login-divider">or try demo mode</div>
+              <button className="login-btn author-btn" onClick={()=>onLogin({id:genId(),name:'Demo Author',email:'demo@studyflow.app',role:'author'})}>
+                ✏️ Demo as Author
+              </button>
+              <button className="login-btn" style={{background:'var(--bg-card)',color:'var(--text)',border:'1px solid var(--border)',marginTop:6}}
+                onClick={()=>onLogin({id:genId(),name:'Demo Student',email:'demo@studyflow.app',role:'learner'})}>
+                🎓 Demo as Student
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// AUTHOR APP
+// ============================================================
+function AuthorApp({ user, packages, setPackages, onSavePkg, onDeletePkg, onLogout }) {
+  const [screen, setScreen] = useState('dashboard'); // dashboard, editor
+  const [editingPkg, setEditingPkg] = useState(null);
+  const [processing, setProcessing] = useState(false);
+
+  const myPackages = packages.filter(p => p.authorId === user.id || p.authorId === 'demo-author');
+
+  const createNew = () => {
+    const newPkg = {
+      id: genId(), name: '', subject: '', yearLevel: '', description: '',
+      status: 'draft', autoResearch: false, authorId: user.id, authorName: user.name,
+      createdAt: Date.now(), updatedAt: Date.now(),
+      content: [], facts: [], categories: [], testPatterns: null
+    };
+    setEditingPkg(newPkg);
+    setScreen('editor');
+  };
+
+  const editPkg = (pkg) => { setEditingPkg({...pkg}); setScreen('editor'); };
+
+  const savePkg = (pkg) => {
+    pkg.updatedAt = Date.now();
+    onSavePkg(pkg);
+    setScreen('dashboard');
+    setEditingPkg(null);
+  };
+
+  const deletePkg = (id) => {
+    if (confirm('Delete this learning package?')) onDeletePkg(id);
+  };
+
+  const togglePublish = (id) => {
+    const pkg = packages.find(p=>p.id===id);
+    if (!pkg) return;
+    let updated;
+    if (pkg.status==='draft') {
+      if (!pkg.name) { alert('Package needs a name before publishing.'); return; }
+      if (pkg.facts.length===0 && !pkg.autoResearch) { alert('Package needs either content or Auto-Research enabled before publishing.'); return; }
+      if (pkg.facts.length===0 && pkg.autoResearch) {
+        if (!pkg.subject && !pkg.name && (!pkg.testPatterns || pkg.testPatterns.topicsCovered.length===0)) { alert('Auto-Research requires a name, subject, or practice test to generate content.'); return; }
+        const result = generateAutoResearchContent(pkg.subject, pkg.yearLevel, pkg.name, pkg.testPatterns);
+        updated = {...pkg, status:'published', updatedAt:Date.now(), facts:result.facts, categories:result.categories, autoResearchGenerated:true, autoResearchNote:result.note};
+      } else {
+        updated = {...pkg, status:'published', updatedAt:Date.now()};
+      }
+    } else {
+      updated = {...pkg, status:'draft', updatedAt:Date.now()};
+    }
+    onSavePkg(updated);
+  };
+
+  return (
+    <div className="app">
+      <div className="gradient-bg" />
+      <nav className="nav">
+        {screen !== 'dashboard' ? (
+          <button className="nav-btn" onClick={()=>{setScreen('dashboard');setEditingPkg(null);}}>← Back</button>
+        ) : <div />}
+        <div className="nav-logo">StudyFlow</div>
+        <div className="nav-right">
+          <span className="nav-role author">Author</span>
+          <span className="nav-user">{user.name}</span>
+          <button className="nav-btn" onClick={onLogout}>Logout</button>
+        </div>
+      </nav>
+      <div className="main">
+        {screen === 'dashboard' && (
+          <div className="page fade-in">
+            <div className="page-header" style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',flexWrap:'wrap',gap:12}}>
+              <div>
+                <h1>My Learning Packages</h1>
+                <p>Create and manage study content for students</p>
+              </div>
+              <button className="btn btn-primary" onClick={createNew}>+ New Package</button>
+            </div>
+            {myPackages.length > 0 ? (
+              <div className="card-grid">
+                {myPackages.map((pkg,i) => (
+                  <div key={pkg.id} className="card pkg-card fade-in" style={{animationDelay:`${i*.05}s`}}>
+                    <div className="pkg-top">
+                      <div className="pkg-title">{pkg.name || 'Untitled Package'}</div>
+                      <span className={`status-badge ${pkg.status}`}>{pkg.status}</span>
+                    </div>
+                    <div className="pkg-desc">{pkg.description || 'No description'}</div>
+                    <div className="pkg-meta-row">
+                      {pkg.subject && <span className="pkg-meta-tag">{pkg.subject}</span>}
+                      {pkg.yearLevel && <span className="pkg-meta-tag">{pkg.yearLevel}</span>}
+                      {pkg.autoResearch && <span className="pkg-meta-tag">🔍 Auto-research</span>}
+                    </div>
+                    <div className="pkg-stats">
+                      <span>📄 {pkg.content.length} file{pkg.content.length!==1?'s':''}</span>
+                      <span>💡 {pkg.facts.length} facts{pkg.autoResearchGenerated ? ' ✨' : ''}</span>
+                      <span>📂 {pkg.categories.length} categories</span>
+                    </div>
+                    {pkg.content.length === 0 && pkg.autoResearch && pkg.facts.length === 0 && (
+                      <div style={{fontSize:11,color:'var(--warning)',marginTop:4}}>⚠️ No content — will auto-generate on publish</div>
+                    )}
+                    <div className="pkg-actions">
+                      <button className="btn btn-ghost btn-sm" onClick={(e)=>{e.stopPropagation();editPkg(pkg);}}>✏️ Edit</button>
+                      <button className="btn btn-sm" onClick={(e)=>{e.stopPropagation();togglePublish(pkg.id);}}
+                        style={{background: pkg.status==='published'?'var(--warning)':'var(--success)', color: pkg.status==='published'?'#000':'#fff'}}>
+                        {pkg.status==='published' ? '⏸ Unpublish' : '🚀 Publish'}
+                      </button>
+                      <button className="btn btn-danger btn-sm" onClick={(e)=>{e.stopPropagation();deletePkg(pkg.id);}}>🗑</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="empty-state">
+                <div className="empty-icon">📦</div>
+                <h3>No packages yet</h3>
+                <p>Create your first learning package to get started</p>
+              </div>
+            )}
+          </div>
+        )}
+        {screen === 'editor' && editingPkg && (
+          <PackageEditor pkg={editingPkg} onSave={savePkg} onCancel={()=>{setScreen('dashboard');setEditingPkg(null);}} />
+        )}
+      </div>
+      {processing && <div className="processing"><div className="processing-spinner" /><h3>Processing...</h3></div>}
+    </div>
+  );
+}
+
+// ============================================================
+// PACKAGE EDITOR (Author)
+// ============================================================
+function PackageEditor({ pkg, onSave, onCancel }) {
+  const [data, setData] = useState({...pkg});
+  const [processing, setProcessing] = useState(false);
+  const [activeTab, setActiveTab] = useState('details');
+  const [otherSubject, setOtherSubject] = useState(SUBJECTS.includes(pkg.subject) ? '' : pkg.subject);
+  const fileRef = useRef();
+
+  const update = (key, val) => setData(d=>({...d,[key]:val}));
+
+  const handleFiles = async (files, contentType) => {
+    setProcessing(true);
+    try {
+      const newContent = [...data.content];
+      let allResearchText = data.content.filter(c=>c.type===CONTENT_TYPES.RESEARCH).map(c=>c.text).join('\n\n');
+      let allTestText = data.content.filter(c=>c.type===CONTENT_TYPES.PRACTICE_TEST).map(c=>c.text).join('\n\n');
+
+      for (const file of files) {
+        const text = await parseFile(file);
+        if (text.trim().length < 20) { alert(`"${file.name}" doesn't seem to have enough text content.`); continue; }
+        newContent.push({ id:genId(), name:file.name, type:contentType, text, addedAt:Date.now() });
+        if (contentType === CONTENT_TYPES.RESEARCH) allResearchText += '\n\n' + text;
+        else allTestText += '\n\n' + text;
+      }
+
+      // Re-process all research content for facts
+      const topicName = data.name || data.subject || 'Study Material';
+      const { facts, categories } = allResearchText.trim()
+        ? extractResearchFacts(allResearchText, topicName)
+        : { facts: [], categories: [] };
+
+      // Re-process practice test content for patterns
+      const testPatterns = allTestText.trim() ? extractTestPatterns(allTestText) : null;
+
+      setData(d => ({...d, content:newContent, facts, categories, testPatterns }));
+    } catch(err) {
+      alert('Error processing file: ' + err.message);
+    }
+    setProcessing(false);
+  };
+
+  const removeContent = (id) => {
+    const newContent = data.content.filter(c=>c.id!==id);
+    // Recompute facts
+    const topicName = data.name || data.subject || 'Study Material';
+    const researchText = newContent.filter(c=>c.type===CONTENT_TYPES.RESEARCH).map(c=>c.text).join('\n\n');
+    const testText = newContent.filter(c=>c.type===CONTENT_TYPES.PRACTICE_TEST).map(c=>c.text).join('\n\n');
+    const { facts, categories } = researchText.trim() ? extractResearchFacts(researchText, topicName) : { facts:[], categories:[] };
+    const testPatterns = testText.trim() ? extractTestPatterns(testText) : null;
+    setData(d => ({...d, content:newContent, facts, categories, testPatterns}));
+  };
+
+  const runAutoResearch = () => {
+    if (!data.subject && !data.name && (!data.testPatterns || data.testPatterns.topicsCovered.length === 0)) {
+      alert('Please set a package name/subject, or upload a practice test first so we know what to research.'); return;
+    }
+    setProcessing(true);
+    setTimeout(() => {
+      // PASS the test patterns so the generator can use them to drive content
+      const result = generateAutoResearchContent(data.subject, data.yearLevel, data.name, data.testPatterns);
+
+      // Merge with any existing facts (don't duplicate)
+      const existingTexts = new Set(data.facts.map(f=>f.text));
+      const newFacts = result.facts.filter(f=>!existingTexts.has(f.text));
+      const allFacts = [...data.facts, ...newFacts];
+      const allCats = [...new Set([...data.categories, ...result.categories])];
+
+      setData(d => ({
+        ...d,
+        facts: allFacts,
+        categories: allCats,
+        autoResearchGenerated: true,
+        autoResearchNote: result.note || 'Auto-generated curriculum content'
+      }));
+      setProcessing(false);
+    }, 1500);
+  };
+
+  const save = () => {
+    if (!data.name.trim()) { alert('Please give your package a name.'); return; }
+    // If auto-research is on but no content, require subject or name
+    if (data.facts.length === 0 && data.autoResearch && !data.subject) {
+      alert('With Auto-Research enabled and no uploaded content, please set a Subject so we know what to research.'); return;
+    }
+    // If auto-research is on AND no content, auto-generate on save
+    if (data.facts.length === 0 && data.autoResearch) {
+      const result = generateAutoResearchContent(data.subject, data.yearLevel, data.name, data.testPatterns);
+      data.facts = result.facts;
+      data.categories = result.categories;
+      data.autoResearchGenerated = true;
+      data.autoResearchNote = result.note;
+    }
+    onSave(data);
+  };
+
+  const researchContent = data.content.filter(c=>c.type===CONTENT_TYPES.RESEARCH);
+  const practiceContent = data.content.filter(c=>c.type===CONTENT_TYPES.PRACTICE_TEST);
+
+  return (
+    <div className="page fade-in" style={{paddingBottom:100}}>
+      <div className="page-header" style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',flexWrap:'wrap',gap:12}}>
+        <div>
+          <h1>{data.id === pkg.id && pkg.name ? 'Edit Package' : 'New Package'}</h1>
+          <p>Configure your learning package details and content</p>
+        </div>
+        <div style={{display:'flex',gap:8}}>
+          <button className="btn btn-ghost" onClick={onCancel}>Cancel</button>
+          <button className="btn btn-primary" onClick={save}>💾 Save Package</button>
+        </div>
+      </div>
+
+      <div className="tabs">
+        <button className={`tab ${activeTab==='details'?'active':''}`} onClick={()=>setActiveTab('details')}>📋 Details</button>
+        <button className={`tab ${activeTab==='content'?'active':''}`} onClick={()=>setActiveTab('content')}>📄 Content ({data.content.length})</button>
+        <button className={`tab ${activeTab==='preview'?'active':''}`} onClick={()=>setActiveTab('preview')}>👁 Preview</button>
+      </div>
+
+      {activeTab === 'details' && (
+        <div className="fade-in">
+          <div className="form-group">
+            <label className="form-label">Package Name *</label>
+            <input className="form-input" value={data.name} onChange={e=>update('name',e.target.value)} placeholder="e.g. Year 8 Algebra Fundamentals" />
+          </div>
+          <div className="form-row">
+            <div className="form-group">
+              <label className="form-label">Subject *</label>
+              <select className="form-select" value={SUBJECTS.includes(data.subject)?data.subject:'Other'} onChange={e=>{
+                if(e.target.value==='Other') { update('subject', otherSubject||''); }
+                else { update('subject', e.target.value); setOtherSubject(''); }
+              }}>
+                <option value="">Select subject...</option>
+                {SUBJECTS.map(s=><option key={s} value={s}>{s}</option>)}
+              </select>
+              {(!SUBJECTS.includes(data.subject) && (data.subject || otherSubject !== undefined)) && data.subject !== '' && (
+                <input className="form-input" style={{marginTop:6}} value={data.subject} onChange={e=>{update('subject',e.target.value);setOtherSubject(e.target.value);}} placeholder="Enter custom subject..." />
+              )}
+              {/* Show custom input when Other is selected */}
+            </div>
+            <div className="form-group">
+              <label className="form-label">Year Level *</label>
+              <select className="form-select" value={data.yearLevel} onChange={e=>update('yearLevel',e.target.value)}>
+                <option value="">Select year...</option>
+                {YEAR_LEVELS.map(y=><option key={y} value={y}>{y}</option>)}
+              </select>
+            </div>
+          </div>
+
+          {!SUBJECTS.includes(data.subject) && data.subject === '' && (
+            <div className="form-group" style={{marginTop:-10}}>
+              <input className="form-input" value={otherSubject} onChange={e=>{setOtherSubject(e.target.value); update('subject',e.target.value);}} placeholder="Type custom subject name..." />
+            </div>
+          )}
+
+          <div className="form-group">
+            <label className="form-label">Description</label>
+            <textarea className="form-textarea" value={data.description} onChange={e=>update('description',e.target.value)} placeholder="Describe what this package covers..." />
+          </div>
+
+        </div>
+      )}
+
+      {activeTab === 'content' && (
+        <div className="fade-in">
+          {/* Research Content Section */}
+          <div style={{marginBottom:24}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
+              <div>
+                <h3 style={{fontSize:15,fontWeight:700}}>📚 Research / Learning Content</h3>
+                <p style={{fontSize:12,color:'var(--text-muted)'}}>Textbook material, notes, study guides — used to teach and generate tests</p>
+              </div>
+            </div>
+            <div className="upload-area" onClick={()=>document.getElementById('research-upload').click()}>
+              <h4>📄 Upload learning material</h4>
+              <p>PDF, TXT, DOCX, MD, HTML</p>
+              <div className="upload-formats"><span>PDF</span><span>TXT</span><span>DOCX</span><span>MD</span></div>
+              <input id="research-upload" type="file" multiple accept=".pdf,.txt,.md,.docx,.doc,.html,.htm,.csv"
+                onChange={e=>{ if(e.target.files.length) handleFiles(Array.from(e.target.files), CONTENT_TYPES.RESEARCH); e.target.value=''; }} />
+            </div>
+            {researchContent.map(c => (
+              <div key={c.id} className="content-item">
+                <div className="ci-icon">📄</div>
+                <div className="ci-info">
+                  <div className="ci-name">{c.name}</div>
+                  <div className="ci-meta">{(c.text.length/1000).toFixed(1)}k chars</div>
+                </div>
+                <span className="content-type-badge research">Research</span>
+                <button className="ci-btn" onClick={()=>removeContent(c.id)}>✕</button>
+              </div>
+            ))}
+
+            {/* Auto-generated facts display */}
+            {researchContent.length === 0 && data.autoResearchGenerated && data.facts.length > 0 && (
+              <div className="card fade-in" style={{background:'rgba(0,184,148,.08)',borderColor:'rgba(0,184,148,.3)',padding:14,marginBottom:8}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
+                  <div style={{display:'flex',alignItems:'center',gap:8}}>
+                    <span style={{fontSize:20}}>✅</span>
+                    <div>
+                      <div style={{fontSize:14,fontWeight:700,color:'var(--success)'}}>Auto-Research Complete</div>
+                      <div style={{fontSize:12,color:'var(--text-secondary)'}}>{data.facts.length} facts generated across {data.categories.length} categories</div>
+                    </div>
+                  </div>
+                  <button className="btn btn-sm btn-ghost" onClick={runAutoResearch}>🔄 Regenerate</button>
+                </div>
+                {data.autoResearchNote && (
+                  <div style={{fontSize:11,color:'var(--text-muted)',marginBottom:10,fontStyle:'italic'}}>{data.autoResearchNote}</div>
+                )}
+                <div style={{fontSize:12,fontWeight:600,color:'var(--text-secondary)',marginBottom:6}}>Generated categories:</div>
+                <div style={{display:'flex',flexWrap:'wrap',gap:4,marginBottom:10}}>
+                  {data.categories.map(c => <span key={c} className="filter-chip" style={{fontSize:11,padding:'3px 10px'}}>{c}</span>)}
+                </div>
+                <div style={{fontSize:12,fontWeight:600,color:'var(--text-secondary)',marginBottom:6}}>Sample facts ({Math.min(5, data.facts.length)} of {data.facts.length}):</div>
+                {data.facts.slice(0,5).map((f,i) => (
+                  <div key={f.id} style={{display:'flex',gap:8,alignItems:'flex-start',padding:'6px 0',borderBottom: i<4?'1px solid var(--border)':'none'}}>
+                    <span style={{fontSize:14,flexShrink:0}}>{['💡','📌','🔑','📎','⭐'][i]}</span>
+                    <div>
+                      <div style={{fontSize:12,fontWeight:500,lineHeight:1.4}}>{f.text}</div>
+                      <div style={{fontSize:10,color:'var(--text-muted)',marginTop:2}}>{f.category}</div>
+                    </div>
+                  </div>
+                ))}
+                {data.facts.length > 5 && (
+                  <div style={{fontSize:11,color:'var(--text-muted)',textAlign:'center',marginTop:8}}>...and {data.facts.length - 5} more facts</div>
+                )}
+              </div>
+            )}
+
+            {/* Empty state - no files AND no generated content */}
+            {researchContent.length === 0 && !(data.autoResearchGenerated && data.facts.length > 0) && (
+              <div style={{textAlign:'center',padding:12}}>
+                <p style={{fontSize:12,color:'var(--text-muted)'}}>
+                  {data.autoResearch
+                    ? 'No files uploaded — Auto-Research will generate learning content when you save'
+                    : 'No research content yet — upload files or enable Auto-Research below'}
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* Practice Test Section */}
+          <div style={{marginBottom:24}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
+              <div>
+                <h3 style={{fontSize:15,fontWeight:700}}>📝 Practice Test Content</h3>
+                <p style={{fontSize:12,color:'var(--text-muted)'}}>Sample exams and practice tests — used to shape test style and question formats (NOT taught as facts)</p>
+              </div>
+            </div>
+            <div className="upload-area" onClick={()=>document.getElementById('practice-upload').click()}>
+              <h4>📝 Upload practice tests</h4>
+              <p>Example exams, past papers, practice questions</p>
+              <div className="upload-formats"><span>PDF</span><span>TXT</span><span>DOCX</span></div>
+              <input id="practice-upload" type="file" multiple accept=".pdf,.txt,.md,.docx,.doc,.html,.htm,.csv"
+                onChange={e=>{ if(e.target.files.length) handleFiles(Array.from(e.target.files), CONTENT_TYPES.PRACTICE_TEST); e.target.value=''; }} />
+            </div>
+            {practiceContent.map(c => (
+              <div key={c.id} className="content-item">
+                <div className="ci-icon">📝</div>
+                <div className="ci-info">
+                  <div className="ci-name">{c.name}</div>
+                  <div className="ci-meta">{(c.text.length/1000).toFixed(1)}k chars</div>
+                </div>
+                <span className="content-type-badge practice">Practice Test</span>
+                <button className="ci-btn" onClick={()=>removeContent(c.id)}>✕</button>
+              </div>
+            ))}
+            {practiceContent.length === 0 && <p style={{fontSize:12,color:'var(--text-muted)',textAlign:'center',padding:8}}>No practice tests uploaded — tests will use dynamically generated question formats. Upload practice tests to guide question style.</p>}
+          </div>
+
+          {/* Auto-Research Toggle */}
+          <div className="card" style={{marginBottom:16,padding:14,borderColor: data.autoResearch ? 'rgba(108,92,231,.3)' : 'var(--border)', background: data.autoResearch ? 'rgba(108,92,231,.04)' : 'var(--bg-card)'}}>
+            <div className="form-toggle" onClick={()=>update('autoResearch',!data.autoResearch)}>
+              <div className={`toggle-track ${data.autoResearch?'on':''}`}><div className="toggle-thumb"/></div>
+              <div>
+                <div className="toggle-label" style={{fontSize:14,fontWeight:700}}>🔍 Auto-Research Mode</div>
+                <div className="toggle-desc">When enabled, saving this package will automatically find and add additional learning content based on your subject, year level, and any uploaded practice tests</div>
+              </div>
+            </div>
+            {data.autoResearch && (
+              <div style={{marginTop:10,padding:10,background:'rgba(108,92,231,.06)',borderRadius:'var(--radius-xs)',fontSize:12,color:'var(--primary-light)'}}>
+                {data.content.length === 0
+                  ? '✨ No content uploaded yet — Auto-Research will generate all learning material when you save.'
+                  : data.content.some(c=>c.type===CONTENT_TYPES.PRACTICE_TEST) && !data.content.some(c=>c.type===CONTENT_TYPES.RESEARCH)
+                    ? '✨ Practice tests detected — Auto-Research will generate learning material guided by your practice test topics when you save.'
+                    : '✨ Auto-Research will supplement your existing content with additional material when you save.'}
+                {(!data.subject || !data.yearLevel) && (
+                  <span style={{display:'block',color:'var(--warning)',marginTop:4}}>⚠️ Set Subject and Year Level in the Details tab for best results</span>
+                )}
+              </div>
+            )}
+            {data.autoResearchNote && (
+              <div style={{marginTop:8,fontSize:11,color:'var(--accent)',fontStyle:'italic'}}>ℹ️ {data.autoResearchNote}</div>
+            )}
+          </div>
+
+          {/* Stats summary */}
+          {(data.facts.length > 0 || data.testPatterns) && (
+            <div className="card" style={{background:'rgba(108,92,231,.05)',borderColor:'rgba(108,92,231,.2)'}}>
+              <h4 style={{fontSize:14,fontWeight:700,marginBottom:8}}>📊 Content Analysis</h4>
+              <div style={{display:'flex',gap:16,flexWrap:'wrap',fontSize:13}}>
+                <span>💡 <strong>{data.facts.length}</strong> facts {data.autoResearchGenerated ? '(incl. auto-generated)' : 'extracted'}</span>
+                <span>📂 <strong>{data.categories.length}</strong> categories</span>
+                {data.testPatterns && <span>📝 <strong>{data.testPatterns.sampleQuestions.length}</strong> practice questions detected</span>}
+                {data.testPatterns && <span>🎯 Test styles: {data.testPatterns.questionStyles.join(', ')}</span>}
+              </div>
+              {data.testPatterns && data.testPatterns.topicsCovered.length > 0 && (
+                <div style={{marginTop:8,fontSize:12,color:'var(--text-secondary)'}}>
+                  📋 Topics from practice tests: {data.testPatterns.topicsCovered.slice(0,8).join(', ')}
+                  {data.autoResearch && <span style={{color:'var(--accent)'}}> — these will guide auto-research content</span>}
+                </div>
+              )}
+              {!researchContent.length && practiceContent.length > 0 && !data.autoResearch && (
+                <div style={{marginTop:8,padding:8,background:'rgba(253,203,110,.1)',borderRadius:'var(--radius-xs)',fontSize:12,color:'var(--warning)'}}>
+                  ⚠️ You have practice tests but no learning content. Tests will be generated dynamically, but students won't have Learn mode material. Consider uploading research content or enabling Auto-Research.
+                </div>
+              )}
+              {!researchContent.length && practiceContent.length > 0 && data.autoResearch && data.facts.length === 0 && (
+                <div style={{marginTop:8,padding:8,background:'rgba(0,206,201,.1)',borderRadius:'var(--radius-xs)',fontSize:12,color:'var(--accent)'}}>
+                  ✨ Practice tests will guide Auto-Research to generate relevant learning content when you save.
+                </div>
+              )}
+            </div>
+          )}
+
+          {data.facts.length === 0 && !data.testPatterns && data.autoResearch && (
+            <div className="card" style={{background:'rgba(108,92,231,.05)',borderColor:'rgba(108,92,231,.2)',textAlign:'center',padding:16}}>
+              <p style={{fontSize:13}}>No content uploaded yet. Auto-Research is enabled — content will be generated when you click <strong>Save Package</strong>.</p>
+              <p style={{fontSize:11,color:'var(--text-muted)',marginTop:6}}>Based on {data.subject || 'your topic'} {data.yearLevel ? `• ${data.yearLevel}` : ''}</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {activeTab === 'preview' && (
+        <div className="fade-in">
+          {data.facts.length === 0 ? (
+            <div className="empty-state">
+              <div className="empty-icon">👁</div>
+              <h3>Nothing to preview</h3>
+              <p>Add research content first, then preview what students will see</p>
+            </div>
+          ) : (
+            <>
+              <div className="card" style={{marginBottom:12}}>
+                <h3 style={{fontSize:16,fontWeight:700,marginBottom:8}}>{data.name || 'Untitled'}</h3>
+                <div className="pkg-meta-row">
+                  {data.subject && <span className="pkg-meta-tag">{data.subject}</span>}
+                  {data.yearLevel && <span className="pkg-meta-tag">{data.yearLevel}</span>}
+                </div>
+                <p style={{fontSize:13,color:'var(--text-secondary)'}}>Students will see {data.facts.length} learning facts across {data.categories.length} categories.</p>
+              </div>
+              <h4 style={{fontSize:14,fontWeight:700,marginBottom:8}}>Sample Facts (first 5):</h4>
+              {data.facts.slice(0,5).map((f,i) => (
+                <div key={f.id} className="content-item" style={{marginBottom:4}}>
+                  <div className="ci-icon">{getEmoji(i)}</div>
+                  <div className="ci-info">
+                    <div className="ci-name" style={{whiteSpace:'normal',fontSize:12}}>{f.text}</div>
+                    <div className="ci-meta">{f.category}</div>
+                  </div>
+                </div>
+              ))}
+              <h4 style={{fontSize:14,fontWeight:700,margin:'16px 0 8px'}}>Categories:</h4>
+              <div className="filters">
+                {data.categories.map(c => <span key={c} className="filter-chip">{c}</span>)}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {processing && (
+        <div className="processing">
+          <div className="processing-spinner" />
+          <h3>{data.autoResearch && researchContent.length === 0 ? '🔍 Researching Content...' : 'Processing files...'}</h3>
+          <p>{data.autoResearch && researchContent.length === 0
+            ? `Generating ${data.subject || 'study'} content for ${data.yearLevel || 'your year level'}...`
+            : 'Extracting content and analysing...'}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// LEARNER APP
+// ============================================================
+function LearnerApp({ user, packages, onLogout }) {
+  const [screen, setScreen] = useState('browse'); // browse, learn, test-setup, test
+  const [activePkg, setActivePkg] = useState(null);
+  const [testConfig, setTestConfig] = useState(null);
+  const [filterSubject, setFilterSubject] = useState('');
+  const [filterYear, setFilterYear] = useState('');
+
+  const filtered = packages.filter(p => {
+    if (filterSubject && p.subject !== filterSubject) return false;
+    if (filterYear && p.yearLevel !== filterYear) return false;
+    return true;
+  });
+
+  const subjects = [...new Set(packages.map(p=>p.subject).filter(Boolean))];
+  const years = [...new Set(packages.map(p=>p.yearLevel).filter(Boolean))];
+
+  const goHome = () => { setScreen('browse'); setActivePkg(null); setTestConfig(null); };
+
+  return (
+    <div className="app">
+      <div className="gradient-bg" />
+      <nav className="nav">
+        {screen !== 'browse' ? (
+          <button className="nav-btn" onClick={goHome}>← Back</button>
+        ) : <div />}
+        <div className="nav-logo">StudyFlow</div>
+        <div className="nav-right">
+          <span className="nav-role learner">Student</span>
+          <span className="nav-user">{user.name}</span>
+          <button className="nav-btn" onClick={onLogout}>Logout</button>
+        </div>
+      </nav>
+      <div className="main">
+        {screen === 'browse' && (
+          <div className="page fade-in">
+            <div className="page-header">
+              <h1>📚 Study Library</h1>
+              <p>Choose a topic to start learning or take a test</p>
+            </div>
+
+            {/* Filters */}
+            {(subjects.length > 1 || years.length > 1) && (
+              <div style={{marginBottom:16}}>
+                <div className="filters">
+                  <span className={`filter-chip ${!filterSubject?'active':''}`} onClick={()=>setFilterSubject('')}>All Subjects</span>
+                  {subjects.map(s => <span key={s} className={`filter-chip ${filterSubject===s?'active':''}`} onClick={()=>setFilterSubject(filterSubject===s?'':s)}>{s}</span>)}
+                </div>
+                {years.length > 1 && (
+                  <div className="filters" style={{marginTop:6}}>
+                    <span className={`filter-chip ${!filterYear?'active':''}`} onClick={()=>setFilterYear('')}>All Years</span>
+                    {years.map(y => <span key={y} className={`filter-chip ${filterYear===y?'active':''}`} onClick={()=>setFilterYear(filterYear===y?'':y)}>{y}</span>)}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {filtered.length > 0 ? (
+              <div className="card-grid">
+                {filtered.map((pkg,i) => (
+                  <div key={pkg.id} className="card browse-card fade-in" style={{animationDelay:`${i*.05}s`}}>
+                    <div className="browse-subject">{pkg.subject}</div>
+                    <div className="browse-title">{pkg.name}</div>
+                    <div className="browse-desc">{pkg.description}</div>
+                    <div className="pkg-meta-row">
+                      {pkg.yearLevel && <span className="pkg-meta-tag">{pkg.yearLevel}</span>}
+                      <span className="pkg-meta-tag">💡 {pkg.facts.length} facts</span>
+                      <span className="pkg-meta-tag">📂 {pkg.categories.length} topics</span>
+                    </div>
+                    <div style={{fontSize:11,color:'var(--text-muted)',marginBottom:10}}>By {pkg.authorName}</div>
+                    <div className="pkg-actions">
+                      {pkg.facts.length > 0 && (
+                        <button className="btn btn-primary btn-sm" onClick={()=>{setActivePkg(pkg);setScreen('learn');}}>⚡ Learn</button>
+                      )}
+                      <button className="btn btn-ghost btn-sm" onClick={()=>{
+                        if (pkg.facts.length === 0) { alert('This package has no learning content yet. Check back later!'); return; }
+                        setActivePkg(pkg); setScreen('test-setup');
+                      }}>📝 Test Me</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="empty-state">
+                <div className="empty-icon">📖</div>
+                <h3>No packages available</h3>
+                <p>{packages.length>0 ? 'Try adjusting your filters' : 'No content has been published yet'}</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {screen === 'learn' && activePkg && (
+          <MicroLearnMode facts={activePkg.facts} categories={activePkg.categories} onBack={goHome} />
+        )}
+
+        {screen === 'test-setup' && activePkg && (
+          <TestSetup
+            pkg={activePkg}
+            onStart={(config) => { setTestConfig(config); setScreen('test'); }}
+          />
+        )}
+
+        {screen === 'test' && activePkg && testConfig && (
+          <TestMode
+            pkg={activePkg}
+            config={testConfig}
+            onBack={goHome}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// MICRO LEARN (Learner) — only uses research facts
+// ============================================================
+function MicroLearnMode({ facts, categories, onBack }) {
+  const [viewMode, setViewMode] = useState('swipe');
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [flipped, setFlipped] = useState(false);
+  const [shuffledFacts] = useState(() => shuffle(facts));
+
+  const progress = ((currentIndex+1)/shuffledFacts.length)*100;
+  const next = () => { if(currentIndex<shuffledFacts.length-1){setFlipped(false);setTimeout(()=>setCurrentIndex(i=>i+1),100);} };
+  const prev = () => { if(currentIndex>0){setFlipped(false);setTimeout(()=>setCurrentIndex(i=>i-1),100);} };
+
+  const touchStart = useRef(null);
+  const handleTS = (e) => { touchStart.current=e.touches[0].clientY; };
+  const handleTE = (e) => { if(!touchStart.current)return; const d=touchStart.current-e.changedTouches[0].clientY; if(Math.abs(d)>60){d>0?next():prev();} touchStart.current=null; };
+
+  if (facts.length === 0) return <div className="page"><div className="empty-state"><div className="empty-icon">📚</div><h3>No learning content</h3><p>This package doesn't have research material yet.</p></div></div>;
+
+  return (
+    <div className="microlearn">
+      <div className="ml-progress">
+        <div className="progress-bar"><div className="progress-fill" style={{width:`${progress}%`}}/></div>
+        <div className="progress-text">{currentIndex+1}/{shuffledFacts.length}</div>
+      </div>
+      <div className="mode-toggle">
+        <button className={viewMode==='swipe'?'active':''} onClick={()=>setViewMode('swipe')}>🃏 Cards</button>
+        <button className={viewMode==='scroll'?'active':''} onClick={()=>setViewMode('scroll')}>📜 Scroll</button>
+      </div>
+
+      {viewMode==='swipe' ? (
+        <>
+          <div className="swipe-container" onTouchStart={handleTS} onTouchEnd={handleTE} onClick={()=>setFlipped(f=>!f)}>
+            <div className="fact-card bounce-in" key={currentIndex}>
+              <div className={`fact-card-inner ${flipped?'flipped':''}`}>
+                <div className="fact-front">
+                  <div className="fact-category">{shuffledFacts[currentIndex].category}</div>
+                  <div className="fact-emoji">{getEmoji(currentIndex)}</div>
+                  <div className="fact-text">{shuffledFacts[currentIndex].text}</div>
+                  <div className="fact-hint">👆 Tap for details</div>
+                </div>
+                <div className="fact-back">
+                  <div className="fact-category">💡 Details</div>
+                  <div className="fact-text" style={{fontSize:15}}>{shuffledFacts[currentIndex].text}</div>
+                  {shuffledFacts[currentIndex].detail && <div className="fact-detail">{shuffledFacts[currentIndex].detail}</div>}
+                  <div className="fact-hint">👆 Tap to flip back</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="swipe-nav">
+            <button onClick={prev} disabled={currentIndex===0}>◀</button>
+            <button className="primary-nav" onClick={()=>setFlipped(f=>!f)}>🔄</button>
+            <button onClick={next} disabled={currentIndex===shuffledFacts.length-1}>▶</button>
+          </div>
+        </>
+      ) : (
+        <div className="scroll-container">
+          {shuffledFacts.map((fact,i) => (
+            <div key={fact.id} className="scroll-card">
+              <div className="scroll-num">{i+1}</div>
+              <div className="fact-category">{fact.category}</div>
+              <div className="scroll-fact">{fact.text}</div>
+              {fact.detail && <div className="scroll-detail">{fact.detail}</div>}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// TEST SETUP (Learner)
+// ============================================================
+function TestSetup({ pkg, onStart }) {
+  const [selectedCats, setSelectedCats] = useState([]);
+  const [qCount, setQCount] = useState(10);
+
+  const toggleCat = (cat) => setSelectedCats(p=>p.includes(cat)?p.filter(c=>c!==cat):[...p,cat]);
+
+  return (
+    <div className="page fade-in" style={{maxWidth:600,margin:'0 auto'}}>
+      <div style={{textAlign:'center',marginBottom:20}}>
+        <h2 style={{fontSize:20,fontWeight:800}}>📝 Test Setup</h2>
+        <p style={{fontSize:13,color:'var(--text-secondary)'}}>{pkg.name}</p>
+        {pkg.testPatterns && (
+          <p style={{fontSize:11,color:'var(--accent)',marginTop:4}}>
+            ✨ Test style informed by {pkg.testPatterns.sampleQuestions.length} practice questions
+          </p>
+        )}
+      </div>
+
+      {pkg.categories.length > 1 && (
+        <div style={{marginBottom:16}}>
+          <h3 style={{fontSize:14,fontWeight:600,marginBottom:8}}>Filter by Category (optional)</h3>
+          <div className="filters">
+            {pkg.categories.map(cat => (
+              <span key={cat} className={`filter-chip ${selectedCats.includes(cat)?'active':''}`} onClick={()=>toggleCat(cat)}>{cat}</span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div style={{marginBottom:16}}>
+        <h3 style={{fontSize:14,fontWeight:600,marginBottom:8}}>Number of Questions</h3>
+        <div style={{display:'flex',gap:8}}>
+          {[5,10,15,20].map(n => (
+            <button key={n} className={`filter-chip ${qCount===n?'active':''}`} style={{flex:1,textAlign:'center',justifyContent:'center'}} onClick={()=>setQCount(n)}>{n}</button>
+          ))}
+        </div>
+      </div>
+
+      <button className="btn btn-primary btn-lg" onClick={()=>onStart({categories:selectedCats,count:qCount})}>
+        Start Test →
+      </button>
+    </div>
+  );
+}
+
+// ============================================================
+// TEST MODE (Learner)
+// ============================================================
+function TestMode({ pkg, config, onBack }) {
+  const [questions] = useState(() =>
+    generateQuestions(pkg.facts, pkg.categories, config.count, config.categories.length>0?config.categories:null, pkg.testPatterns)
+  );
+  const [currentQ, setCurrentQ] = useState(0);
+  const [answer, setAnswer] = useState(null);
+  const [submitted, setSubmitted] = useState(false);
+  const [isCorrect, setIsCorrect] = useState(null);
+  const [results, setResults] = useState([]);
+  const [finished, setFinished] = useState(false);
+  const [retrying, setRetrying] = useState(false);
+  const [startTime] = useState(Date.now());
+  const [elapsed, setElapsed] = useState(0);
+
+  useEffect(() => { if(finished)return; const t=setInterval(()=>setElapsed(Math.floor((Date.now()-startTime)/1000)),1000); return ()=>clearInterval(t); }, [finished]);
+  const fmt = (s) => `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`;
+
+  const q = questions[currentQ];
+
+  // For selectall, answer is an array of selected indices
+  const toggleSelectAll = (idx) => {
+    if (submitted) return;
+    const current = Array.isArray(answer) ? [...answer] : [];
+    if (current.includes(idx)) setAnswer(current.filter(i=>i!==idx));
+    else setAnswer([...current, idx]);
+  };
+
+  const check = () => {
+    if(answer===null || answer==='' || (Array.isArray(answer) && answer.length===0)) return;
+    let correct = false;
+    switch(q.type){
+      case 'mcq': correct = q.options[answer]?.correct === true; break;
+      case 'truefalse': correct = answer === q.correctAnswer; break;
+      case 'selectall': {
+        // Check that ALL correct options are selected and NO wrong ones
+        const selected = new Set(Array.isArray(answer) ? answer : []);
+        const correctIdxs = q.options.map((o,i) => o.correct ? i : -1).filter(i=>i>=0);
+        const wrongIdxs = q.options.map((o,i) => !o.correct ? i : -1).filter(i=>i>=0);
+        const allCorrectSelected = correctIdxs.every(i => selected.has(i));
+        const noWrongSelected = wrongIdxs.every(i => !selected.has(i));
+        correct = allCorrectSelected && noWrongSelected;
+        break;
+      }
+    }
+    setIsCorrect(correct); setSubmitted(true);
+    if(!retrying) setResults(p=>[...p,{question:q,answer,correct}]);
+    else setResults(p=>{const u=[...p];u[u.length-1]={...u[u.length-1],retriedCorrect:correct};return u;});
+  };
+
+  const retry = () => { setAnswer(null); setSubmitted(false); setIsCorrect(null); setRetrying(true); };
+  const next = () => {
+    if(currentQ>=questions.length-1){setFinished(true);return;}
+    setCurrentQ(i=>i+1); setAnswer(null); setSubmitted(false); setIsCorrect(null); setRetrying(false);
+  };
+
+  if (finished) return <ScoreScreen results={results} elapsed={elapsed} total={questions.length} onRetry={()=>{setCurrentQ(0);setAnswer(null);setSubmitted(false);setIsCorrect(null);setResults([]);setFinished(false);setRetrying(false);}} onHome={onBack} />;
+
+  return (
+    <div className="test-view">
+      <div className="test-header">
+        <div className="progress-bar" style={{flex:1}}><div className="progress-fill" style={{width:`${((currentQ+1)/questions.length)*100}%`}}/></div>
+        <div className="test-q-num">Q{currentQ+1}/{questions.length}</div>
+        <div className="test-timer">⏱ {fmt(elapsed)}</div>
+      </div>
+      <div className="test-content">
+        <div className="test-question-card fade-in" key={`${currentQ}-${retrying}`}>
+          <span className={`test-type-badge ${q.type}`}>
+            {q.type==='mcq'?'🔘 Pick One':q.type==='truefalse'?'✅ True or False':'☑️ Select All That Apply'}
+          </span>
+          <div className="test-question">{q.question}</div>
+
+          {/* MCQ — pick one */}
+          {q.type==='mcq' && (
+            <div className="mcq-options">
+              {q.options.map((opt,i) => {
+                let cls='mcq-option';
+                if(submitted&&opt.correct) cls+=' correct';
+                else if(submitted&&i===answer&&!opt.correct) cls+=' incorrect';
+                else if(i===answer) cls+=' selected';
+                if(submitted) cls+=' disabled';
+                return <div key={i} className={cls} onClick={()=>!submitted&&setAnswer(i)}><div className="option-letter">{String.fromCharCode(65+i)}</div><div>{opt.text}</div></div>;
+              })}
+            </div>
+          )}
+
+          {/* True/False */}
+          {q.type==='truefalse' && (
+            <div className="tf-options">
+              {[true,false].map(val => {
+                let cls='tf-option';
+                if(submitted&&val===q.correctAnswer) cls+=' correct';
+                else if(submitted&&val===answer&&val!==q.correctAnswer) cls+=' incorrect';
+                else if(val===answer) cls+=' selected';
+                return <div key={String(val)} className={cls} onClick={()=>!submitted&&setAnswer(val)}>{val?'✅ True':'❌ False'}</div>;
+              })}
+            </div>
+          )}
+
+          {/* Select All That Apply — multi-select */}
+          {q.type==='selectall' && (
+            <div className="mcq-options">
+              {q.options.map((opt,i) => {
+                const sel = Array.isArray(answer) && answer.includes(i);
+                let cls='mcq-option';
+                if(submitted&&opt.correct) cls+=' correct';
+                else if(submitted&&sel&&!opt.correct) cls+=' incorrect';
+                else if(sel) cls+=' selected';
+                if(submitted) cls+=' disabled';
+                return <div key={i} className={cls} onClick={()=>toggleSelectAll(i)}>
+                  <div className="option-letter" style={{borderRadius:4,fontSize:14}}>{sel?'✓':'　'}</div>
+                  <div>{opt.text}</div>
+                </div>;
+              })}
+            </div>
+          )}
+
+          <div className="test-submit">
+            {!submitted ? (
+              <button className="btn btn-primary btn-lg" onClick={check}
+                disabled={answer===null || answer==='' || (Array.isArray(answer)&&answer.length===0)}>
+                Check Answer
+              </button>
+            ) : (
+              <>
+                <div className={`feedback-box ${isCorrect?'correct':'incorrect'} ${!isCorrect?'shake':''}`}>
+                  <div className="feedback-icon">{isCorrect?'🎉':'😔'}</div>
+                  <div className="feedback-title">{isCorrect?'Correct!':'Not quite right'}</div>
+                  <div className="feedback-explain">{q.explanation}</div>
+                  {!isCorrect && (
+                    <div className="feedback-answer">
+                      {q.type==='mcq' && <>Correct answer: {q.options.find(o=>o.correct)?.text}</>}
+                      {q.type==='truefalse' && <>Correct answer: {q.correctAnswer?'True':'False'}</>}
+                      {q.type==='selectall' && <>Correct selections: {q.options.filter(o=>o.correct).map(o=>o.text).join('; ')}</>}
+                    </div>
+                  )}
+                </div>
+                <div style={{display:'flex',gap:8,marginTop:10}}>
+                  {!isCorrect && !retrying && <button className="btn btn-lg" style={{background:'var(--warning)',color:'#000',flex:1}} onClick={retry}>🔄 Try Again</button>}
+                  <button className="btn btn-primary btn-lg" style={{flex:1}} onClick={next}>{currentQ>=questions.length-1?'🏁 Finish':'Next →'}</button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// SCORE SCREEN
+// ============================================================
+function ScoreScreen({ results, elapsed, total, onRetry, onHome }) {
+  const correct = results.filter(r=>r.correct).length;
+  const pct = Math.round((correct/total)*100);
+  const grade = pct>=80?'great':pct>=50?'ok':'needs-work';
+  const msgs = { great:['Amazing! 🌟','You really know this material!'], ok:['Getting there! 💪','Keep practising!'], 'needs-work':['Keep going! 📚','Review and try again — you\'ve got this!'] };
+  const fmt = (s) => `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`;
+
+  return (
+    <div className="score-screen fade-in">
+      <div className={`score-circle ${grade}`}>
+        <div className="score-percent">{pct}%</div>
+        <div className="score-label">Score</div>
+      </div>
+      <div className="score-message">{msgs[grade][0]}</div>
+      <div className="score-detail">{msgs[grade][1]}</div>
+      <div className="score-stats">
+        <div className="score-stat"><div className="stat-num" style={{color:'var(--success)'}}>{correct}</div><div className="stat-label">Correct</div></div>
+        <div className="score-stat"><div className="stat-num" style={{color:'var(--danger)'}}>{total-correct}</div><div className="stat-label">Wrong</div></div>
+        <div className="score-stat"><div className="stat-num">{fmt(elapsed)}</div><div className="stat-label">Time</div></div>
+      </div>
+
+      {results.filter(r=>!r.correct).length>0 && (
+        <div style={{width:'100%',textAlign:'left',marginBottom:20}}>
+          <h3 style={{fontSize:14,fontWeight:700,marginBottom:10}}>📖 Review Missed Questions</h3>
+          {results.filter(r=>!r.correct).map((r,i) => (
+            <div key={i} className="card" style={{marginBottom:6,padding:12}}>
+              <div style={{fontSize:13,fontWeight:600,marginBottom:4}}>{r.question.question}</div>
+              <div style={{fontSize:12,color:'var(--text-secondary)'}}>{r.question.explanation}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{display:'flex',gap:10,width:'100%'}}>
+        <button className="btn btn-primary btn-lg" onClick={onRetry}>🔄 Retry</button>
+        <button className="btn btn-ghost btn-lg" onClick={onHome}>🏠 Home</button>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// RENDER
+// ============================================================
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
