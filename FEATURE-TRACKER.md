@@ -25,7 +25,7 @@
 - ✅ Approve/reject pending signups
 - ✅ Toggle roles on/off for any user (learner/publisher/admin)
 - ✅ Notifications feed
-- 📋 Mentor role management
+- ✅ Mentor role management (assignable in admin dashboard)
 
 ### Publisher (Authoring)
 - ✅ Create/edit/delete learning packages
@@ -39,9 +39,9 @@
 - ✅ AI auto-research with real Claude/ChatGPT API
 - ✅ AI API key management (add/update/remove key, stored per-user in Firestore)
 - ✅ Editable individual facts (edit/delete generated facts inline)
-- 📋 Share course with other publishers (owner/contributor roles)
-- 📋 Publisher analytics dashboard (per-course, per-student)
-- 📋 View student feedback with ratings
+- ✅ Share course with other publishers (owner/contributor roles)
+- ✅ Publisher analytics dashboard (per-course, per-student)
+- ✅ View student feedback with ratings
 
 ### Learner (Studying)
 - ✅ Browse published courses
@@ -60,16 +60,16 @@
 - ✅ Send feedback to publisher
 - ✅ Practice-test-only vs broader testing toggle (Full Course / Exam Prep)
 - ✅ Test results saved to Firestore
-- 📋 DOB/age-based year level auto-detection
-- 📋 Age-appropriate course matching (hide higher years by default)
-- 📋 Dual ratings (learning content quality + test quality)
+- ✅ DOB/age-based year level auto-detection
+- ✅ Age-appropriate course matching (hide higher years by default)
+- ✅ Dual ratings (learning content quality + test quality)
 
 ### Content & Test Engine
 - ✅ Client-side PDF parsing
 - ✅ Research fact extraction from uploaded content
 - ✅ Practice test pattern detection (question styles, topics)
 - ✅ Auto-research from hardcoded knowledge bank
-- 🔨 Auto-research from real AI API (Claude or ChatGPT)
+- ✅ Auto-research from real AI API (Claude or ChatGPT)
 - ✅ Question generation: MCQ, True/False, Select All
 - ✅ Concept-based questions (not memorization)
 - ✅ Practice test patterns influence question style weighting
@@ -86,7 +86,7 @@
 - ✅ Level progression system (11 levels based on XP thresholds)
 - ✅ Visual XP bar, level display, streak fire indicator
 - ✅ Badge unlock popup animation
-- 📋 Leaderboard (opt-in)
+- ✅ Leaderboard (shows you + followed learners ranked by XP)
 
 ### Social / Following
 - ✅ Search for other learners by email
@@ -96,7 +96,7 @@
 - ✅ See followed learners' XP, level, streak, badges, avg score
 - ✅ Send encouragement/cheers with custom messages
 - ✅ Receive cheers with notification banner
-- 📋 Activity feed from followed learners
+- ✅ Activity feed from followed learners (recent test scores)
 
 ### Mentor Role
 - ✅ Mentor role in signup (3-way: Learner, Publisher, Mentor)
@@ -126,10 +126,10 @@
 - 📋 Branch protection rules
 
 ### Publisher Collaboration
-- 📋 Course owner vs contributor roles
-- 📋 Invite other publishers to courses
-- 📋 Remove collaborators
-- 📋 Contributor permissions (edit content, not delete)
+- ✅ Course owner vs contributor roles (basic — set in package editor)
+- ✅ Invite other publishers by email
+- ✅ Remove collaborators
+- 📋 Contributor permissions enforcement (edit content, not delete)
 
 ### Advanced Features
 - 📋 Spaced repetition algorithm for learn mode
