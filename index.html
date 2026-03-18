@@ -531,7 +531,158 @@ const DB = {
     const snap = await fb_db.collection('feedback').orderBy('timestamp','desc').limit(200).get();
     return snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
   },
+  // --- Gamification ---
+  async getGamification(userId) {
+    if (!fb_db) return { xp:0, streak:0, lastActive:null, badges:[], level:1 };
+    const doc = await fb_db.collection('gamification').doc(userId).get();
+    return doc.exists ? doc.data() : { xp:0, streak:0, lastActive:null, badges:[], level:1 };
+  },
+  async updateGamification(userId, data) {
+    if (fb_db) await fb_db.collection('gamification').doc(userId).set(data, { merge: true });
+  },
+  // --- Social / Following ---
+  async sendFollowRequest(fromId, toId, fromName) {
+    if (!fb_db) return;
+    await fb_db.collection('follow_requests').doc(`${fromId}_${toId}`).set({ fromId, toId, fromName, status:'pending', createdAt:Date.now() });
+  },
+  async getFollowRequests(userId) {
+    if (!fb_db) return [];
+    const snap = await fb_db.collection('follow_requests').where('toId','==',userId).where('status','==','pending').get();
+    return snap.docs.map(d=>({id:d.id,...d.data()}));
+  },
+  async respondFollowRequest(docId, status) {
+    if (fb_db) await fb_db.collection('follow_requests').doc(docId).update({ status });
+  },
+  async getFollowing(userId) {
+    if (!fb_db) return [];
+    // Accepted requests where I am the sender
+    const snap = await fb_db.collection('follow_requests').where('fromId','==',userId).where('status','==','accepted').get();
+    return snap.docs.map(d=>d.data().toId);
+  },
+  async getFollowers(userId) {
+    if (!fb_db) return [];
+    const snap = await fb_db.collection('follow_requests').where('toId','==',userId).where('status','==','accepted').get();
+    return snap.docs.map(d=>d.data().fromId);
+  },
+  async searchUsersByEmail(email) {
+    if (!fb_db) return [];
+    const snap = await fb_db.collection('users').where('email','==',email.toLowerCase().trim()).get();
+    return snap.docs.map(d=>({uid:d.id,...d.data()}));
+  },
+  // --- Mentor ---
+  async sendMentorRequest(mentorId, mentorName, learnerId) {
+    if (!fb_db) return;
+    await fb_db.collection('mentor_requests').doc(`${mentorId}_${learnerId}`).set({ mentorId, mentorName, learnerId, status:'pending', createdAt:Date.now() });
+  },
+  async getMentorRequests(learnerId) {
+    if (!fb_db) return [];
+    const snap = await fb_db.collection('mentor_requests').where('learnerId','==',learnerId).where('status','==','pending').get();
+    return snap.docs.map(d=>({id:d.id,...d.data()}));
+  },
+  async respondMentorRequest(docId, status) {
+    if (fb_db) await fb_db.collection('mentor_requests').doc(docId).update({ status });
+  },
+  async getMentees(mentorId) {
+    if (!fb_db) return [];
+    const snap = await fb_db.collection('mentor_requests').where('mentorId','==',mentorId).where('status','==','accepted').get();
+    return snap.docs.map(d=>d.data().learnerId);
+  },
+  async getMentors(learnerId) {
+    if (!fb_db) return [];
+    const snap = await fb_db.collection('mentor_requests').where('learnerId','==',learnerId).where('status','==','accepted').get();
+    return snap.docs.map(d=>d.data().mentorId);
+  },
+  // --- Course Ratings ---
+  async saveRating(userId, packageId, ratings) {
+    // ratings: { learning: 1-5, testing: 1-5 }
+    if (!fb_db) return;
+    await fb_db.collection('ratings').doc(`${userId}_${packageId}`).set({ userId, packageId, ...ratings, timestamp:Date.now() });
+  },
+  async getRatingsForPackage(packageId) {
+    if (!fb_db) return [];
+    const snap = await fb_db.collection('ratings').where('packageId','==',packageId).get();
+    return snap.docs.map(d=>d.data());
+  },
+  // --- User profile (DOB) ---
+  async updateUserProfile(uid, data) {
+    if (fb_db) await fb_db.collection('users').doc(uid).set(data, { merge: true });
+  },
+  // --- Send encouragement ---
+  async sendCheer(fromId, fromName, toId, message) {
+    if (!fb_db) return;
+    await fb_db.collection('cheers').add({ fromId, fromName, toId, message, timestamp:Date.now(), read:false });
+  },
+  async getCheers(userId) {
+    if (!fb_db) return [];
+    const snap = await fb_db.collection('cheers').where('toId','==',userId).where('read','==',false).limit(20).get();
+    return snap.docs.map(d=>({id:d.id,...d.data()}));
+  },
+  async markCheerRead(id) {
+    if (fb_db) await fb_db.collection('cheers').doc(id).update({ read:true });
+  },
 };
+
+// ============================================================
+// GAMIFICATION ENGINE
+// ============================================================
+const XP_VALUES = { learn_session: 10, test_complete: 25, test_pass: 50, perfect_score: 100, streak_bonus: 15 };
+const BADGES = [
+  { id:'first_test', name:'First Steps', icon:'🎯', desc:'Complete your first test', check: g => g.testsCompleted >= 1 },
+  { id:'five_tests', name:'Quiz Whiz', icon:'📝', desc:'Complete 5 tests', check: g => g.testsCompleted >= 5 },
+  { id:'twenty_tests', name:'Test Master', icon:'🏆', desc:'Complete 20 tests', check: g => g.testsCompleted >= 20 },
+  { id:'perfect', name:'Perfect Score', icon:'💯', desc:'Get 100% on a test', check: g => g.perfectScores >= 1 },
+  { id:'streak3', name:'On Fire', icon:'🔥', desc:'3-day streak', check: g => g.bestStreak >= 3 },
+  { id:'streak7', name:'Unstoppable', icon:'⚡', desc:'7-day streak', check: g => g.bestStreak >= 7 },
+  { id:'streak30', name:'Legendary', icon:'👑', desc:'30-day streak', check: g => g.bestStreak >= 30 },
+  { id:'xp500', name:'Rising Star', icon:'🌟', desc:'Earn 500 XP', check: g => g.xp >= 500 },
+  { id:'xp2000', name:'Scholar', icon:'🎓', desc:'Earn 2000 XP', check: g => g.xp >= 2000 },
+  { id:'courses5', name:'Explorer', icon:'🗺️', desc:'Access 5 courses', check: g => g.coursesAccessed >= 5 },
+];
+const LEVELS = [0,100,250,500,1000,2000,3500,5500,8000,12000,20000]; // XP thresholds per level
+function getLevel(xp) { for(let i=LEVELS.length-1;i>=0;i--){if(xp>=LEVELS[i]) return i+1;} return 1; }
+function getXpForNextLevel(xp) { const lvl=getLevel(xp); return lvl>=LEVELS.length ? null : LEVELS[lvl]; }
+
+async function awardXP(userId, reason, amount, gamData) {
+  const g = {...gamData};
+  g.xp = (g.xp||0) + amount;
+  g.level = getLevel(g.xp);
+  // Update streak
+  const today = new Date().toDateString();
+  const lastDay = g.lastActive ? new Date(g.lastActive).toDateString() : null;
+  if (lastDay !== today) {
+    const yesterday = new Date(Date.now()-86400000).toDateString();
+    g.streak = lastDay === yesterday ? (g.streak||0)+1 : 1;
+    g.bestStreak = Math.max(g.bestStreak||0, g.streak);
+    g.lastActive = Date.now();
+    if (g.streak > 1) { g.xp += XP_VALUES.streak_bonus; } // Streak bonus
+  }
+  // Track stats
+  if (reason==='test_complete') g.testsCompleted = (g.testsCompleted||0)+1;
+  if (reason==='perfect_score') g.perfectScores = (g.perfectScores||0)+1;
+  // Check for new badges
+  const oldBadges = g.badges || [];
+  const newBadges = BADGES.filter(b => b.check(g) && !oldBadges.includes(b.id)).map(b=>b.id);
+  g.badges = [...oldBadges, ...newBadges];
+  await DB.updateGamification(userId, g);
+  return { gamData: g, newBadges: newBadges.map(id => BADGES.find(b=>b.id===id)) };
+}
+
+// ============================================================
+// DOB TO AUSTRALIAN YEAR LEVEL
+// ============================================================
+function dobToYearLevel(dob) {
+  if (!dob) return null;
+  const birthDate = new Date(dob);
+  const today = new Date();
+  // Australian school year: Year 7 starts at ~12 years old
+  // Born in year Y → starts Year 7 in year Y+12 (roughly)
+  const age = today.getFullYear() - birthDate.getFullYear();
+  const monthAdj = (today.getMonth() - birthDate.getMonth()) < 0 ? -1 : 0;
+  const actualAge = age + monthAdj;
+  // Year 7 = ~12yo, Year 8 = ~13yo, etc.
+  const yearLevel = Math.min(12, Math.max(7, actualAge - 5));
+  return `Year ${yearLevel}`;
+}
 
 // ============================================================
 // CONSTANTS & UTILITIES
@@ -1225,7 +1376,8 @@ function App() {
             await DB.saveUser(fbUser.uid, { roles: profile.roles, status: 'approved' });
           }
           setUser({ id: fbUser.uid, name: profile.name, email: fbUser.email,
-            roles: profile.roles || [profile.role || 'learner'], status: profile.status || 'approved', isAdmin });
+            roles: profile.roles || [profile.role || 'learner'], status: profile.status || 'approved', isAdmin,
+            dob: profile.dob || null, yearLevel: profile.yearLevel || null });
         } else {
           setUser({ id: fbUser.uid, name: fbUser.email, email: fbUser.email, roles: ['learner'], status: 'pending', isAdmin: false });
         }
@@ -1294,7 +1446,7 @@ function App() {
   if (user.isAdmin) availableViews.push('admin');
   if (user.roles.includes('author') || user.isAdmin) availableViews.push('author');
   if (user.roles.includes('learner') || user.isAdmin) availableViews.push('learner');
-  // Auto-select if only one view, or show picker
+  if (user.roles.includes('mentor')) availableViews.push('mentor');
   const currentView = activeView || (availableViews.length === 1 ? availableViews[0] : null);
 
   if (!currentView) {
@@ -1317,6 +1469,9 @@ function App() {
               {availableViews.includes('learner') && (
                 <button className="btn btn-lg" style={{background:'linear-gradient(135deg,var(--accent),var(--success))',color:'white'}} onClick={()=>setActiveView('learner')}>🎓 Learner</button>
               )}
+              {availableViews.includes('mentor') && (
+                <button className="btn btn-lg" style={{background:'linear-gradient(135deg,#e17055,#fdcb6e)',color:'white'}} onClick={()=>setActiveView('mentor')}>🧭 Mentor</button>
+              )}
             </div>
           </div>
         </div>
@@ -1326,6 +1481,7 @@ function App() {
 
   if (currentView === 'admin') return <AdminApp user={user} onSwitchView={setActiveView} onLogout={handleLogout} />;
   if (currentView === 'author') return <AuthorApp user={user} packages={packages} setPackages={setPackages} onSavePkg={savePackage} onDeletePkg={deletePackage} onSwitchView={availableViews.length>1?setActiveView:null} onLogout={handleLogout} />;
+  if (currentView === 'mentor') return <MentorApp user={user} onSwitchView={availableViews.length>1?setActiveView:null} onLogout={handleLogout} />;
   return <LearnerApp user={user} packages={packages.filter(p=>p.status==='published')} onSwitchView={availableViews.length>1?setActiveView:null} onLogout={handleLogout} />;
 }
 
@@ -1338,6 +1494,7 @@ function AuthScreen({ onLogin }) {
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [selectedRoles, setSelectedRoles] = useState(['learner']); // multi-select roles
+  const [dob, setDob] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [busy, setBusy] = useState(false);
@@ -1380,7 +1537,8 @@ function AuthScreen({ onLogin }) {
         const status = isAdmin ? 'approved' : 'pending'; // Non-admins start as pending
 
         const cred = await fb_auth.createUserWithEmailAndPassword(email, password);
-        await DB.saveUser(cred.user.uid, { name: name.trim(), email, roles, status, createdAt: Date.now() });
+        const yearLevel = dob ? dobToYearLevel(dob) : null;
+        await DB.saveUser(cred.user.uid, { name: name.trim(), email, roles, status, dob: dob||null, yearLevel, createdAt: Date.now() });
 
         // Notify admin of new signup (unless this IS the admin)
         if (!isAdmin) {
@@ -1463,6 +1621,11 @@ function AuthScreen({ onLogin }) {
                 <input value={name} onChange={e=>setName(e.target.value)} placeholder="Enter your name" />
               </div>
               <div className="login-field">
+                <label>Date of Birth</label>
+                <input type="date" value={dob} onChange={e=>setDob(e.target.value)} className="form-input" style={{colorScheme:'dark'}} />
+                {dob && <div className="form-hint" style={{color:'var(--accent)'}}>Auto-detected: {dobToYearLevel(dob)}</div>}
+              </div>
+              <div className="login-field">
                 <label>Email</label>
                 <input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="your@email.com" />
               </div>
@@ -1472,19 +1635,24 @@ function AuthScreen({ onLogin }) {
               </div>
               <div className="login-field">
                 <label>I want to... (select all that apply)</label>
-                <div className="role-selector">
+                <div className="role-selector" style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:6}}>
                   <div className={`role-option ${selectedRoles.includes('learner')?'selected':''}`} onClick={()=>toggleRole('learner')}>
                     <div className="role-icon">🎓</div>
                     <div className="role-name">Learner</div>
-                    <div className="role-desc">Take courses & tests</div>
+                    <div className="role-desc" style={{fontSize:9}}>Take courses</div>
                   </div>
                   <div className={`role-option ${selectedRoles.includes('author')?'selected':''}`} onClick={()=>toggleRole('author')}>
                     <div className="role-icon">✏️</div>
                     <div className="role-name">Publisher</div>
-                    <div className="role-desc">Create & publish courses</div>
+                    <div className="role-desc" style={{fontSize:9}}>Create courses</div>
+                  </div>
+                  <div className={`role-option ${selectedRoles.includes('mentor')?'selected':''}`} onClick={()=>toggleRole('mentor')}>
+                    <div className="role-icon">🧭</div>
+                    <div className="role-name">Mentor</div>
+                    <div className="role-desc" style={{fontSize:9}}>Guide learners</div>
                   </div>
                 </div>
-                <div className="form-hint" style={{marginTop:6}}>You can select both. An admin will review and approve your account.</div>
+                <div className="form-hint" style={{marginTop:6}}>Select all that apply. An admin will review your account.</div>
               </div>
               <button className="login-btn learner-btn" onClick={handleSignup} disabled={busy}>
                 {busy ? 'Creating account...' : '🚀 Create Account'}
@@ -1520,6 +1688,137 @@ function AuthScreen({ onLogin }) {
                 onClick={()=>onLogin({id:genId(),name:'Demo Student',email:'demo@studyflow.app',role:'learner'})}>
                 🎓 Demo as Student
               </button>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// MENTOR APP — View and guide mentees
+// ============================================================
+function MentorApp({ user, onSwitchView, onLogout }) {
+  const [mentees, setMentees] = useState([]);
+  const [menteeData, setMenteeData] = useState({}); // {uid: {results, progress, gamification}}
+  const [allUsers, setAllUsers] = useState([]);
+  const [searchEmail, setSearchEmail] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedMentee, setSelectedMentee] = useState(null);
+
+  useEffect(() => {
+    (async () => {
+      const menteeIds = await DB.getMentees(user.id);
+      const users = await DB.getAllUsers();
+      const menteeUsers = users.filter(u => menteeIds.includes(u.uid));
+      setMentees(menteeUsers);
+      setAllUsers(users);
+      // Load data for each mentee
+      const data = {};
+      for (const m of menteeUsers) {
+        const [results, progress, gam] = await Promise.all([
+          DB.getTestResultsForUser(m.uid), DB.getLearnerProgress(m.uid), DB.getGamification(m.uid)
+        ]);
+        data[m.uid] = { results, progress, gam };
+      }
+      setMenteeData(data);
+      setLoading(false);
+    })();
+  }, []);
+
+  const searchForLearner = async () => {
+    if (!searchEmail.trim()) return;
+    const results = await DB.searchUsersByEmail(searchEmail.trim());
+    setSearchResults(results.filter(u => u.uid !== user.id));
+  };
+
+  const requestMentee = async (learner) => {
+    await DB.sendMentorRequest(user.id, user.name, learner.uid);
+    alert(`Mentor request sent to ${learner.name}. They need to approve it.`);
+    setSearchEmail(''); setSearchResults([]);
+  };
+
+  return (
+    <div className="app">
+      <div className="gradient-bg" />
+      <nav className="nav">
+        <div className="nav-logo">StudyFlow</div>
+        <div className="nav-right">
+          <span className="nav-role" style={{background:'rgba(225,112,85,.15)',color:'#fdcb6e'}}>Mentor</span>
+          {onSwitchView && <button className="nav-btn" onClick={()=>onSwitchView(null)}>Switch</button>}
+          <span className="nav-user">{user.name}</span>
+          <button className="nav-btn" onClick={onLogout}>Logout</button>
+        </div>
+      </nav>
+      <div className="main">
+        <div className="page fade-in">
+          <div className="page-header"><h1>🧭 Mentor Dashboard</h1><p>Track and guide your learners</p></div>
+
+          {/* Search & add mentees */}
+          <div className="card" style={{marginBottom:16,padding:14}}>
+            <h3 style={{fontSize:14,fontWeight:700,marginBottom:8}}>Add a Learner</h3>
+            <div style={{display:'flex',gap:8}}>
+              <input className="form-input" value={searchEmail} onChange={e=>setSearchEmail(e.target.value)} placeholder="Search by email..." style={{flex:1}} onKeyDown={e=>e.key==='Enter'&&searchForLearner()} />
+              <button className="btn btn-primary btn-sm" onClick={searchForLearner}>Search</button>
+            </div>
+            {searchResults.map(u => (
+              <div key={u.uid} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 0',borderBottom:'1px solid var(--border)'}}>
+                <div><div style={{fontWeight:600,fontSize:13}}>{u.name}</div><div style={{fontSize:11,color:'var(--text-muted)'}}>{u.email}</div></div>
+                <button className="btn btn-primary btn-sm" onClick={()=>requestMentee(u)}>Request</button>
+              </div>
+            ))}
+          </div>
+
+          {loading ? <div style={{textAlign:'center',padding:40}}><div className="processing-spinner" style={{margin:'0 auto'}}/></div> : (
+            <>
+              <h3 style={{fontSize:15,fontWeight:700,marginBottom:10}}>My Mentees ({mentees.length})</h3>
+              {mentees.length === 0 ? (
+                <div className="empty-state"><div className="empty-icon">🧭</div><h3>No mentees yet</h3><p>Search by email above to send a mentor request</p></div>
+              ) : (
+                <>
+                  {mentees.map(m => {
+                    const d = menteeData[m.uid] || { results:[], progress:[], gam:{} };
+                    const avg = d.results.length ? Math.round(d.results.reduce((a,r)=>a+(r.correct/r.total)*100,0)/d.results.length) : 0;
+                    const best = d.results.length ? Math.max(...d.results.map(r=>Math.round((r.correct/r.total)*100))) : 0;
+                    return (
+                      <div key={m.uid} className="card" style={{marginBottom:8,padding:14,cursor:'pointer'}} onClick={()=>setSelectedMentee(selectedMentee===m.uid?null:m.uid)}>
+                        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                          <div>
+                            <div style={{fontWeight:700,fontSize:15}}>{m.name}</div>
+                            <div style={{fontSize:12,color:'var(--text-muted)'}}>{m.email} · Level {d.gam.level||1} · {d.gam.streak||0} day streak {d.gam.streak>=3?'🔥':''}</div>
+                          </div>
+                          <div style={{display:'flex',gap:10}}>
+                            <div style={{textAlign:'center'}}><div style={{fontSize:18,fontWeight:800,color:'var(--primary-light)'}}>{d.results.length}</div><div style={{fontSize:9,color:'var(--text-muted)'}}>Tests</div></div>
+                            <div style={{textAlign:'center'}}><div style={{fontSize:18,fontWeight:800,color:avg>=70?'var(--success)':'var(--warning)'}}>{avg}%</div><div style={{fontSize:9,color:'var(--text-muted)'}}>Avg</div></div>
+                            <div style={{textAlign:'center'}}><div style={{fontSize:18,fontWeight:800,color:'var(--accent)'}}>{d.progress.length}</div><div style={{fontSize:9,color:'var(--text-muted)'}}>Courses</div></div>
+                          </div>
+                        </div>
+                        {/* Expanded detail */}
+                        {selectedMentee === m.uid && (
+                          <div style={{marginTop:12,borderTop:'1px solid var(--border)',paddingTop:12}} className="fade-in">
+                            <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:10}}>
+                              <div style={{padding:'6px 12px',background:'var(--bg)',borderRadius:'var(--radius-xs)',fontSize:12}}><strong>XP:</strong> {d.gam.xp||0}</div>
+                              <div style={{padding:'6px 12px',background:'var(--bg)',borderRadius:'var(--radius-xs)',fontSize:12}}><strong>Best streak:</strong> {d.gam.bestStreak||0} days</div>
+                              <div style={{padding:'6px 12px',background:'var(--bg)',borderRadius:'var(--radius-xs)',fontSize:12}}><strong>Badges:</strong> {(d.gam.badges||[]).length}</div>
+                              <div style={{padding:'6px 12px',background:'var(--bg)',borderRadius:'var(--radius-xs)',fontSize:12}}><strong>Completed:</strong> {d.progress.filter(p=>p.completed).length} courses</div>
+                            </div>
+                            <h4 style={{fontSize:13,fontWeight:700,marginBottom:6}}>Recent Tests</h4>
+                            {d.results.slice(0,10).map((r,i) => (
+                              <div key={i} style={{display:'flex',justifyContent:'space-between',padding:'4px 0',fontSize:12,borderBottom:'1px solid var(--border)'}}>
+                                <span>{r.packageName||'Course'} — {r.correct}/{r.total}</span>
+                                <span style={{color:r.score>=70?'var(--success)':'var(--danger)',fontWeight:700}}>{r.score}%</span>
+                              </div>
+                            ))}
+                            {d.results.length === 0 && <p style={{fontSize:12,color:'var(--text-muted)'}}>No tests taken yet</p>}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </>
+              )}
             </>
           )}
         </div>
@@ -2152,6 +2451,26 @@ function PackageEditor({ pkg, onSave, onCancel, userId }) {
             <textarea className="form-textarea" value={data.description} onChange={e=>update('description',e.target.value)} placeholder="Describe what this package covers..." />
           </div>
 
+          {/* Course Collaboration */}
+          <div className="form-group">
+            <label className="form-label">Collaborators (optional)</label>
+            <div className="form-hint" style={{marginBottom:6}}>Add other publishers by email. You are the owner; they can edit content.</div>
+            <div style={{display:'flex',gap:6,marginBottom:6}}>
+              <input className="form-input" id="collab-email" placeholder="publisher@email.com" style={{flex:1}} onKeyDown={e=>{
+                if(e.key==='Enter'){const em=e.target.value.trim();if(em){update('collaborators',[...(data.collaborators||[]),{email:em,role:'contributor'}]);e.target.value='';}}
+              }} />
+              <button className="btn btn-ghost btn-sm" onClick={()=>{const el=document.getElementById('collab-email');const em=el?.value?.trim();if(em){update('collaborators',[...(data.collaborators||[]),{email:em,role:'contributor'}]);el.value='';}}}>Add</button>
+            </div>
+            {(data.collaborators||[]).map((c,i) => (
+              <div key={i} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'4px 8px',background:'var(--bg)',borderRadius:'var(--radius-xs)',marginBottom:4,fontSize:12}}>
+                <span>{c.email} — <select style={{background:'transparent',border:'none',color:'var(--text-secondary)',fontSize:11}} value={c.role} onChange={e=>{
+                  const updated=[...(data.collaborators||[])]; updated[i]={...updated[i],role:e.target.value}; update('collaborators',updated);
+                }}><option value="contributor">Contributor</option><option value="owner">Owner</option></select></span>
+                <button style={{background:'none',border:'none',color:'var(--text-muted)',cursor:'pointer',fontSize:12}} onClick={()=>update('collaborators',(data.collaborators||[]).filter((_,j)=>j!==i))}>✕</button>
+              </div>
+            ))}
+          </div>
+
         </div>
       )}
 
@@ -2466,23 +2785,55 @@ function PackageEditor({ pkg, onSave, onCancel, userId }) {
 // LEARNER APP
 // ============================================================
 function LearnerApp({ user, packages, onSwitchView, onLogout }) {
-  const [screen, setScreen] = useState('browse'); // browse, learn, test-setup, test, progress, course-detail, feedback
+  const [screen, setScreen] = useState('browse'); // browse, learn, test-setup, test, progress, course-detail, social
   const [activePkg, setActivePkg] = useState(null);
   const [testConfig, setTestConfig] = useState(null);
   const [search, setSearch] = useState('');
-  const [filterStatus, setFilterStatus] = useState('all'); // all, new, inprogress, completed
+  const [filterStatus, setFilterStatus] = useState('all');
   const [filterSubject, setFilterSubject] = useState('');
+  const [showAllYears, setShowAllYears] = useState(false);
   const [myProgress, setMyProgress] = useState([]);
   const [myResults, setMyResults] = useState([]);
   const [loadedData, setLoadedData] = useState(false);
   const [feedbackText, setFeedbackText] = useState('');
   const [feedbackRating, setFeedbackRating] = useState(0);
+  const [learningRating, setLearningRating] = useState(0);
+  const [testingRating, setTestingRating] = useState(0);
+  // Gamification
+  const [gamData, setGamData] = useState({ xp:0, streak:0, level:1, badges:[], bestStreak:0, testsCompleted:0, perfectScores:0, coursesAccessed:0 });
+  const [newBadgePopup, setNewBadgePopup] = useState(null);
+  // Social
+  const [followSearch, setFollowSearch] = useState('');
+  const [followSearchResults, setFollowSearchResults] = useState([]);
+  const [following, setFollowing] = useState([]);
+  const [followingData, setFollowingData] = useState({}); // {uid: {name,gam,results}}
+  const [followRequests, setFollowRequests] = useState([]);
+  const [mentorRequests, setMentorRequests] = useState([]);
+  const [cheers, setCheers] = useState([]);
 
   // Load learner data
   useEffect(() => {
     if (!loadedData && firebaseConfigured) {
-      Promise.all([DB.getLearnerProgress(user.id), DB.getTestResultsForUser(user.id)]).then(([prog, res]) => {
-        setMyProgress(prog); setMyResults(res); setLoadedData(true);
+      Promise.all([
+        DB.getLearnerProgress(user.id), DB.getTestResultsForUser(user.id), DB.getGamification(user.id),
+        DB.getFollowRequests(user.id), DB.getMentorRequests(user.id), DB.getCheers(user.id), DB.getFollowing(user.id)
+      ]).then(async ([prog, res, gam, fReqs, mReqs, ch, followIds]) => {
+        setMyProgress(prog); setMyResults(res); setGamData(gam); setFollowRequests(fReqs);
+        setMentorRequests(mReqs); setCheers(ch); setFollowing(followIds);
+        // Load following user data
+        if (followIds.length > 0) {
+          const allUsers = await DB.getAllUsers();
+          const data = {};
+          for (const fid of followIds) {
+            const u = allUsers.find(x=>x.uid===fid);
+            if (u) {
+              const [fGam, fRes] = await Promise.all([DB.getGamification(fid), DB.getTestResultsForUser(fid)]);
+              data[fid] = { name: u.name, email: u.email, gam: fGam, results: fRes };
+            }
+          }
+          setFollowingData(data);
+        }
+        setLoadedData(true);
       });
     }
   }, [loadedData]);
@@ -2502,13 +2853,18 @@ function LearnerApp({ user, packages, onSwitchView, onLogout }) {
       if (!(p.name||'').toLowerCase().includes(q) && !(p.subject||'').toLowerCase().includes(q) && !(p.description||'').toLowerCase().includes(q) && !(p.yearLevel||'').toLowerCase().includes(q)) return false;
     }
     if (filterSubject && p.subject !== filterSubject) return false;
+    // Age-based year level filtering (hide higher years unless user opts in)
+    if (!showAllYears && user.yearLevel && p.yearLevel) {
+      const userYr = parseInt(user.yearLevel.replace(/\D/g,'')) || 0;
+      const pkgYr = parseInt(p.yearLevel.replace(/\D/g,'')) || 0;
+      if (pkgYr > userYr + 1) return false; // Show own year + 1 above, hide rest
+    }
     // Status filter
     const prog = getProgressForPkg(p.id);
     const results = getResultsForPkg(p.id);
     if (filterStatus === 'new' && (prog || results.length > 0)) return false;
     if (filterStatus === 'inprogress' && (!results.length || (prog && prog.completed))) return false;
     if (filterStatus === 'completed' && (!prog || !prog.completed)) return false;
-    // Hide completed by default (unless specifically filtering for them)
     if (filterStatus === 'all' && prog && prog.completed) return false;
     return true;
   });
@@ -2560,11 +2916,74 @@ function LearnerApp({ user, packages, onSwitchView, onLogout }) {
         </div>
       </nav>
       <div className="main">
-        {/* Bottom tab bar for mobile */}
-        {(screen === 'browse' || screen === 'progress') && (
+        {/* Badge unlock popup */}
+        {newBadgePopup && (
+          <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.7)',zIndex:300,display:'flex',alignItems:'center',justifyContent:'center'}} onClick={()=>setNewBadgePopup(null)}>
+            <div className="card bounce-in" style={{textAlign:'center',padding:32,maxWidth:300}} onClick={e=>e.stopPropagation()}>
+              <div style={{fontSize:64,marginBottom:12}}>{newBadgePopup.icon}</div>
+              <h2 style={{fontSize:20,fontWeight:800,marginBottom:4}}>Badge Unlocked!</h2>
+              <div style={{fontSize:16,fontWeight:700,color:'var(--primary-light)',marginBottom:4}}>{newBadgePopup.name}</div>
+              <div style={{fontSize:13,color:'var(--text-secondary)',marginBottom:16}}>{newBadgePopup.desc}</div>
+              <button className="btn btn-primary" onClick={()=>setNewBadgePopup(null)}>Awesome! 🎉</button>
+            </div>
+          </div>
+        )}
+
+        {/* Gamification bar */}
+        {(screen === 'browse' || screen === 'progress' || screen === 'social') && (
+          <div style={{display:'flex',alignItems:'center',gap:10,padding:'8px 16px',background:'var(--bg-card)',borderBottom:'1px solid var(--border)',fontSize:12}}>
+            <span style={{fontWeight:800,color:'var(--primary-light)'}}>Lv{gamData.level||1}</span>
+            <div style={{flex:1,height:6,background:'var(--border)',borderRadius:3,overflow:'hidden'}}>
+              <div style={{height:'100%',background:'linear-gradient(90deg,var(--primary),var(--accent))',borderRadius:3,width:`${getXpForNextLevel(gamData.xp||0)?((gamData.xp||0)/getXpForNextLevel(gamData.xp||0))*100:100}%`,transition:'width .5s'}}/>
+            </div>
+            <span style={{color:'var(--accent)',fontWeight:600}}>{gamData.xp||0} XP</span>
+            <span style={{color:gamData.streak>=3?'var(--warning)':'var(--text-muted)'}}>{gamData.streak||0}🔥</span>
+            {(gamData.badges||[]).length > 0 && <span>{BADGES.filter(b=>(gamData.badges||[]).includes(b.id)).slice(-3).map(b=>b.icon).join('')}</span>}
+          </div>
+        )}
+
+        {/* Cheers popup */}
+        {cheers.length > 0 && (
+          <div style={{padding:'8px 16px',background:'rgba(253,203,110,.1)',borderBottom:'1px solid rgba(253,203,110,.2)'}}>
+            {cheers.map(c => (
+              <div key={c.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'4px 0',fontSize:12}}>
+                <span>💪 <strong>{c.fromName}</strong>: {c.message}</span>
+                <button className="btn btn-sm btn-ghost" style={{fontSize:10,padding:'2px 6px'}} onClick={async()=>{await DB.markCheerRead(c.id);setCheers(prev=>prev.filter(x=>x.id!==c.id));}}>✓</button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Pending requests */}
+        {(followRequests.length > 0 || mentorRequests.length > 0) && (screen === 'browse' || screen === 'social') && (
+          <div style={{padding:'8px 16px',background:'rgba(108,92,231,.06)',borderBottom:'1px solid var(--border)'}}>
+            {followRequests.map(r => (
+              <div key={r.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'4px 0',fontSize:12}}>
+                <span>👋 <strong>{r.fromName}</strong> wants to follow you</span>
+                <div style={{display:'flex',gap:4}}>
+                  <button className="btn btn-sm btn-success" style={{fontSize:10,padding:'2px 8px'}} onClick={async()=>{await DB.respondFollowRequest(r.id,'accepted');setFollowRequests(prev=>prev.filter(x=>x.id!==r.id));}}>Accept</button>
+                  <button className="btn btn-sm btn-ghost" style={{fontSize:10,padding:'2px 8px'}} onClick={async()=>{await DB.respondFollowRequest(r.id,'declined');setFollowRequests(prev=>prev.filter(x=>x.id!==r.id));}}>Decline</button>
+                </div>
+              </div>
+            ))}
+            {mentorRequests.map(r => (
+              <div key={r.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'4px 0',fontSize:12}}>
+                <span>🧭 <strong>{r.mentorName}</strong> wants to mentor you</span>
+                <div style={{display:'flex',gap:4}}>
+                  <button className="btn btn-sm btn-success" style={{fontSize:10,padding:'2px 8px'}} onClick={async()=>{await DB.respondMentorRequest(r.id,'accepted');setMentorRequests(prev=>prev.filter(x=>x.id!==r.id));}}>Accept</button>
+                  <button className="btn btn-sm btn-ghost" style={{fontSize:10,padding:'2px 8px'}} onClick={async()=>{await DB.respondMentorRequest(r.id,'declined');setMentorRequests(prev=>prev.filter(x=>x.id!==r.id));}}>Decline</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Tab bar */}
+        {(screen === 'browse' || screen === 'progress' || screen === 'social') && (
           <div style={{display:'flex',borderBottom:'1px solid var(--border)',padding:'0 16px'}}>
             <button className={`tab ${screen==='browse'?'active':''}`} onClick={()=>setScreen('browse')}>📚 Courses</button>
-            <button className={`tab ${screen==='progress'?'active':''}`} onClick={()=>setScreen('progress')}>📊 My Progress</button>
+            <button className={`tab ${screen==='progress'?'active':''}`} onClick={()=>setScreen('progress')}>📊 Progress</button>
+            <button className={`tab ${screen==='social'?'active':''}`} onClick={()=>setScreen('social')}>👥 Social</button>
           </div>
         )}
 
@@ -2586,6 +3005,16 @@ function LearnerApp({ user, packages, onSwitchView, onLogout }) {
               <div className="filters" style={{marginBottom:12}}>
                 <span className={`filter-chip ${!filterSubject?'active':''}`} onClick={()=>setFilterSubject('')}>All</span>
                 {subjects.map(s => <span key={s} className={`filter-chip ${filterSubject===s?'active':''}`} onClick={()=>setFilterSubject(filterSubject===s?'':s)}>{s}</span>)}
+              </div>
+            )}
+            {user.yearLevel && !showAllYears && (
+              <div style={{fontSize:11,color:'var(--text-muted)',marginBottom:8}}>
+                Showing courses for {user.yearLevel} and below. <button className="auth-link" style={{fontSize:11}} onClick={()=>setShowAllYears(true)}>Show all year levels</button>
+              </div>
+            )}
+            {showAllYears && user.yearLevel && (
+              <div style={{fontSize:11,color:'var(--text-muted)',marginBottom:8}}>
+                Showing all year levels. <button className="auth-link" style={{fontSize:11}} onClick={()=>setShowAllYears(false)}>Only show {user.yearLevel}</button>
               </div>
             )}
 
@@ -2689,6 +3118,74 @@ function LearnerApp({ user, packages, onSwitchView, onLogout }) {
           </div>
         )}
 
+        {/* SOCIAL screen */}
+        {screen === 'social' && (
+          <div className="page fade-in">
+            <div className="page-header"><h1>👥 Social</h1><p>Connect with other learners</p></div>
+
+            {/* Search for learners */}
+            <div className="card" style={{marginBottom:16,padding:14}}>
+              <h3 style={{fontSize:14,fontWeight:700,marginBottom:8}}>Find Learners</h3>
+              <div style={{display:'flex',gap:8}}>
+                <input className="form-input" value={followSearch} onChange={e=>setFollowSearch(e.target.value)} placeholder="Search by email..." style={{flex:1}} onKeyDown={async e=>{if(e.key==='Enter'){const r=await DB.searchUsersByEmail(followSearch);setFollowSearchResults(r.filter(u=>u.uid!==user.id));}}} />
+                <button className="btn btn-primary btn-sm" onClick={async()=>{const r=await DB.searchUsersByEmail(followSearch);setFollowSearchResults(r.filter(u=>u.uid!==user.id));}}>Search</button>
+              </div>
+              {followSearchResults.map(u => (
+                <div key={u.uid} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 0',borderBottom:'1px solid var(--border)'}}>
+                  <div><div style={{fontWeight:600,fontSize:13}}>{u.name}</div><div style={{fontSize:11,color:'var(--text-muted)'}}>{u.email}</div></div>
+                  {following.includes(u.uid) ? <span style={{fontSize:12,color:'var(--success)'}}>✓ Following</span> :
+                    <button className="btn btn-primary btn-sm" onClick={async()=>{await DB.sendFollowRequest(user.id,u.uid,user.name);alert('Follow request sent!');}}>Follow</button>}
+                </div>
+              ))}
+            </div>
+
+            {/* Following feed */}
+            <h3 style={{fontSize:15,fontWeight:700,marginBottom:10}}>Following ({following.length})</h3>
+            {following.length === 0 ? (
+              <div className="empty-state"><div className="empty-icon">👥</div><h3>Not following anyone</h3><p>Search by email to connect with classmates</p></div>
+            ) : (
+              following.map(fid => {
+                const fd = followingData[fid];
+                if (!fd) return null;
+                const avg = fd.results?.length ? Math.round(fd.results.reduce((a,r)=>a+(r.correct/r.total)*100,0)/fd.results.length) : 0;
+                return (
+                  <div key={fid} className="card" style={{marginBottom:8,padding:12}}>
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                      <div>
+                        <div style={{fontWeight:700,fontSize:14}}>{fd.name}</div>
+                        <div style={{fontSize:11,color:'var(--text-muted)'}}>Level {fd.gam?.level||1} · {fd.gam?.streak||0}🔥 streak · {fd.gam?.xp||0} XP</div>
+                        <div style={{fontSize:11,color:'var(--text-muted)'}}>{(fd.gam?.badges||[]).map(bid=>{const b=BADGES.find(x=>x.id===bid);return b?b.icon:'';}).join(' ')}</div>
+                      </div>
+                      <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                        <div style={{textAlign:'center'}}><div style={{fontSize:16,fontWeight:800,color:avg>=70?'var(--success)':'var(--warning)'}}>{avg}%</div><div style={{fontSize:9,color:'var(--text-muted)'}}>Avg</div></div>
+                        <button className="btn btn-sm" style={{background:'rgba(253,203,110,.15)',color:'var(--warning)',border:'none',fontSize:11}} onClick={async()=>{
+                          const msg = prompt('Send encouragement:','Keep it up! 💪');
+                          if(msg) { await DB.sendCheer(user.id,user.name,fid,msg); alert('Cheer sent!'); }
+                        }}>💪 Cheer</button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+
+            {/* My badges */}
+            <h3 style={{fontSize:15,fontWeight:700,margin:'20px 0 10px'}}>🏆 My Badges ({(gamData.badges||[]).length}/{BADGES.length})</h3>
+            <div style={{display:'flex',flexWrap:'wrap',gap:8}}>
+              {BADGES.map(b => {
+                const earned = (gamData.badges||[]).includes(b.id);
+                return (
+                  <div key={b.id} style={{padding:'10px',background:earned?'rgba(108,92,231,.1)':'var(--bg-card)',border:`1px solid ${earned?'var(--primary)':'var(--border)'}`,borderRadius:'var(--radius-sm)',textAlign:'center',width:80,opacity:earned?1:.4}}>
+                    <div style={{fontSize:24}}>{b.icon}</div>
+                    <div style={{fontSize:10,fontWeight:600,marginTop:2}}>{b.name}</div>
+                    <div style={{fontSize:9,color:'var(--text-muted)'}}>{b.desc}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {/* COURSE DETAIL screen */}
         {screen === 'course-detail' && activePkg && (
           <div className="page fade-in">
@@ -2725,13 +3222,34 @@ function LearnerApp({ user, packages, onSwitchView, onLogout }) {
             ) : <p style={{fontSize:13,color:'var(--text-muted)'}}>No tests taken yet for this course.</p>}
 
             {/* Feedback section */}
-            <h3 style={{fontSize:15,fontWeight:700,margin:'20px 0 10px'}}>💬 Send Feedback to Publisher</h3>
-            <div style={{display:'flex',gap:4,marginBottom:8}}>
-              {[1,2,3,4,5].map(n => (
-                <button key={n} style={{background:'none',border:'none',fontSize:24,cursor:'pointer',opacity:n<=feedbackRating?.9:.3}} onClick={()=>setFeedbackRating(n)}>⭐</button>
-              ))}
+            {/* Dual ratings */}
+            <h3 style={{fontSize:15,fontWeight:700,margin:'20px 0 10px'}}>⭐ Rate This Course</h3>
+            <div style={{display:'flex',gap:16,marginBottom:12}}>
+              <div style={{flex:1}}>
+                <div style={{fontSize:12,fontWeight:600,color:'var(--text-secondary)',marginBottom:4}}>📚 Learning Content</div>
+                <div style={{display:'flex',gap:2}}>
+                  {[1,2,3,4,5].map(n => (
+                    <button key={n} style={{background:'none',border:'none',fontSize:20,cursor:'pointer',opacity:n<=learningRating?.9:.3}} onClick={()=>setLearningRating(n)}>⭐</button>
+                  ))}
+                </div>
+              </div>
+              <div style={{flex:1}}>
+                <div style={{fontSize:12,fontWeight:600,color:'var(--text-secondary)',marginBottom:4}}>📝 Test Quality</div>
+                <div style={{display:'flex',gap:2}}>
+                  {[1,2,3,4,5].map(n => (
+                    <button key={n} style={{background:'none',border:'none',fontSize:20,cursor:'pointer',opacity:n<=testingRating?.9:.3}} onClick={()=>setTestingRating(n)}>⭐</button>
+                  ))}
+                </div>
+              </div>
             </div>
-            <textarea className="form-textarea" value={feedbackText} onChange={e=>setFeedbackText(e.target.value)} placeholder="Share your thoughts on this course... What worked well? What could be improved?" style={{minHeight:60,marginBottom:8}} />
+            {(learningRating > 0 || testingRating > 0) && (
+              <button className="btn btn-sm btn-ghost" style={{marginBottom:12}} onClick={async()=>{
+                await DB.saveRating(user.id, activePkg.id, { learning: learningRating, testing: testingRating });
+                alert('Rating saved!'); }}>Save Rating</button>
+            )}
+
+            <h3 style={{fontSize:15,fontWeight:700,margin:'10px 0 10px'}}>💬 Send Feedback to Publisher</h3>
+            <textarea className="form-textarea" value={feedbackText} onChange={e=>setFeedbackText(e.target.value)} placeholder="Share your thoughts... What worked? What could improve?" style={{minHeight:60,marginBottom:8}} />
             <button className="btn btn-primary btn-sm" onClick={()=>submitFeedback(activePkg)} disabled={!feedbackText.trim()}>📤 Send Feedback</button>
           </div>
         )}
@@ -2746,7 +3264,17 @@ function LearnerApp({ user, packages, onSwitchView, onLogout }) {
 
         {screen === 'test' && activePkg && testConfig && (
           <TestMode pkg={activePkg} config={testConfig} user={user}
-            onTestComplete={(result) => { setMyResults(prev => [result, ...prev]); }}
+            onTestComplete={async (result) => {
+              setMyResults(prev => [result, ...prev]);
+              // Award gamification XP
+              if (user && firebaseConfigured) {
+                const xpAmount = result.score >= 100 ? XP_VALUES.perfect_score : result.score >= 70 ? XP_VALUES.test_pass : XP_VALUES.test_complete;
+                const reason = result.score >= 100 ? 'perfect_score' : 'test_complete';
+                const { gamData: newGam, newBadges } = await awardXP(user.id, reason, xpAmount, gamData);
+                setGamData(newGam);
+                if (newBadges.length > 0) setNewBadgePopup(newBadges[0]);
+              }
+            }}
             onBack={goHome} />
         )}
       </div>

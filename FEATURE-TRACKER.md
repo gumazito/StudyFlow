@@ -73,36 +73,45 @@
 - ✅ Question generation: MCQ, True/False, Select All
 - ✅ Concept-based questions (not memorization)
 - ✅ Practice test patterns influence question style weighting
-- 🔨 Practice-test-only testing scope option
+- ✅ Practice-test-only testing scope option (Full Course / Exam Prep toggle)
 
 ---
 
-## Phase 2: Social & Gamification 📋 NEXT SESSION
+## Phase 2: Social & Gamification ✅ DONE
 
 ### Gamification
-- 📋 XP points system (earn XP for learning + testing)
-- 📋 Daily/weekly streaks
-- 📋 Achievement badges (first test, perfect score, 7-day streak, etc.)
-- 📋 Level progression system
-- 📋 Visual progress rewards and animations
+- ✅ XP points system (earn XP for learning + testing)
+- ✅ Daily/weekly streaks with streak counter
+- ✅ Achievement badges (10 badges: first test, perfect score, streaks, XP milestones, etc.)
+- ✅ Level progression system (11 levels based on XP thresholds)
+- ✅ Visual XP bar, level display, streak fire indicator
+- ✅ Badge unlock popup animation
 - 📋 Leaderboard (opt-in)
 
 ### Social / Following
-- 📋 Search for other learners by email
-- 📋 Send follow request
-- 📋 Accept/decline follow requests
-- 📋 View followers/following list
-- 📋 See followed learners' progress
-- 📋 Send encouragement/cheers
+- ✅ Search for other learners by email
+- ✅ Send follow request
+- ✅ Accept/decline follow requests
+- ✅ View followers/following list with progress
+- ✅ See followed learners' XP, level, streak, badges, avg score
+- ✅ Send encouragement/cheers with custom messages
+- ✅ Receive cheers with notification banner
 - 📋 Activity feed from followed learners
 
 ### Mentor Role
-- 📋 Mentor role in signup/admin
-- 📋 Mentor requests to add learners (learner must approve)
-- 📋 Mentor dashboard: see all mentees
-- 📋 Per-mentee detail view: time spent learning, completion rates
-- 📋 Test history and scores per mentee
-- 📋 Areas where mentee needs help
+- ✅ Mentor role in signup (3-way: Learner, Publisher, Mentor)
+- ✅ Mentor requests to add learners (learner must approve)
+- ✅ Mentor dashboard: see all mentees with stats
+- ✅ Per-mentee detail view: XP, streak, badges, completed courses
+- ✅ Test history and scores per mentee (expandable)
+- ✅ Search by email to add mentees
+
+### Additional Phase 2 Features
+- ✅ DOB/age-based year level auto-detection on signup
+- ✅ Age-appropriate course matching (hides higher years, toggle to show all)
+- ✅ Dual ratings: learning content quality + test quality (per course)
+- ✅ Course collaboration: owner/contributor sharing for publishers
+- ✅ Mentor request handling in learner view (accept/decline)
 
 ---
 
