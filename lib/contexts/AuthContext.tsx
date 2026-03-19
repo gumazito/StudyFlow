@@ -1,0 +1,184 @@
+'use client'
+import { createContext, useContext, useEffect, useState, ReactNode } from 'react'
+import { onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, 
+  sendPasswordResetEmail, signOut, updateEmail, updatePassword, 
+  EmailAuthProvider, reauthenticateWithCredential, deleteUser, User as FirebaseUser } from 'firebase/auth'
+import { doc, getDoc, setDoc, collection, getDocs, deleteDoc, query, where } from 'firebase/firestore'
+import { auth, db, SYSTEM_ADMIN_EMAIL } from '@/lib/firebase'
+
+export interface UserProfile {
+  id: string
+  name: string
+  email: string
+  roles: string[]
+  status: 'pending' | 'approved' | 'rejected'
+  isAdmin: boolean
+  dob?: string
+  yearLevel?: string
+}
+
+interface AuthContextType {
+  user: UserProfile | null
+  loading: boolean
+  login: (email: string, password: string) => Promise<void>
+  signup: (email: string, password: string, name: string, roles: string[], dob?: string) => Promise<void>
+  logout: () => Promise<void>
+  resetPassword: (email: string) => Promise<void>
+  updateProfile: (data: Partial<UserProfile>) => Promise<void>
+  changeEmail: (newEmail: string, currentPassword: string) => Promise<void>
+  changePassword: (currentPassword: string, newPassword: string) => Promise<void>
+  deleteAccount: () => Promise<void>
+}
+
+const AuthContext = createContext<AuthContextType>({} as AuthContextType)
+
+export function dobToYearLevel(dob: string): string | null {
+  if (!dob) return null
+  const birthDate = new Date(dob)
+  const today = new Date()
+  const age = today.getFullYear() - birthDate.getFullYear()
+  const monthAdj = (today.getMonth() - birthDate.getMonth()) < 0 ? -1 : 0
+  const actualAge = age + monthAdj
+  const yearLevel = Math.min(12, Math.max(7, actualAge - 5))
+  return `Year ${yearLevel}`
+}
+
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [user, setUser] = useState<UserProfile | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, async (fbUser: FirebaseUser | null) => {
+      if (fbUser) {
+        const docRef = doc(db, "users", fbUser.uid)
+        const snap = await getDoc(docRef)
+        if (snap.exists()) {
+          const profile = snap.data()
+          // Migration: old single role to roles array
+          let roles = profile.roles || [profile.role || "learner"]
+          let status = profile.status || "approved"
+          const isAdmin = fbUser.email === SYSTEM_ADMIN_EMAIL || roles.includes("admin")
+          
+          // Auto-grant admin to system admin email
+          if (fbUser.email === SYSTEM_ADMIN_EMAIL && !roles.includes("admin")) {
+            roles = [...new Set([...roles, "admin"])]
+            status = "approved"
+            await setDoc(docRef, { roles, status }, { merge: true })
+          }
+          
+          setUser({
+            id: fbUser.uid, name: profile.name, email: fbUser.email!,
+            roles, status, isAdmin,
+            dob: profile.dob || undefined,
+            yearLevel: profile.yearLevel || undefined,
+          })
+        } else {
+          setUser({
+            id: fbUser.uid, name: fbUser.email!, email: fbUser.email!,
+            roles: ["learner"], status: "pending", isAdmin: false,
+          })
+        }
+      } else {
+        setUser(null)
+      }
+      setLoading(false)
+    })
+    return () => unsub()
+  }, [])
+
+  const login = async (email: string, password: string) => {
+    await signInWithEmailAndPassword(auth, email, password)
+  }
+
+  const signup = async (email: string, password: string, name: string, roles: string[], dob?: string) => {
+    const isAdmin = email.toLowerCase() === SYSTEM_ADMIN_EMAIL
+    const finalRoles = isAdmin ? [...new Set([...roles, "admin"])] : roles
+    const status = isAdmin ? "approved" : "pending"
+    const yearLevel = dob ? dobToYearLevel(dob) : null
+
+    const cred = await createUserWithEmailAndPassword(auth, email, password)
+    await setDoc(doc(db, "users", cred.user.uid), {
+      name, email, roles: finalRoles, status, dob: dob || null,
+      yearLevel, createdAt: Date.now(),
+    })
+
+    // Notify admin of new signup (unless this IS the admin)
+    if (!isAdmin) {
+      const notifRef = collection(db, "admin_notifications")
+      await setDoc(doc(notifRef), {
+        type: "new_signup", userName: name, userEmail: email,
+        userRoles: finalRoles, userId: cred.user.uid,
+        message: `New signup: ${name} (${email}) requesting ${finalRoles.join(", ")} access`,
+        createdAt: Date.now(), read: false,
+      })
+    }
+  }
+
+  const logout = async () => {
+    await signOut(auth)
+    setUser(null)
+  }
+
+  const resetPassword = async (email: string) => {
+    await sendPasswordResetEmail(auth, email)
+  }
+
+  const updateProfile = async (data: Partial<UserProfile>) => {
+    if (!user) return
+    await setDoc(doc(db, "users", user.id), data as any, { merge: true })
+    setUser(prev => prev ? { ...prev, ...data } : null)
+  }
+
+  const changeEmail = async (newEmail: string, currentPassword: string) => {
+    const fbUser = auth.currentUser
+    if (!fbUser || !fbUser.email) throw new Error("Not logged in")
+    const credential = EmailAuthProvider.credential(fbUser.email, currentPassword)
+    await reauthenticateWithCredential(fbUser, credential)
+    await updateEmail(fbUser, newEmail)
+    await setDoc(doc(db, "users", user!.id), { email: newEmail }, { merge: true })
+    setUser(prev => prev ? { ...prev, email: newEmail } : null)
+  }
+
+  const changePassword = async (currentPassword: string, newPassword: string) => {
+    const fbUser = auth.currentUser
+    if (!fbUser || !fbUser.email) throw new Error("Not logged in")
+    const credential = EmailAuthProvider.credential(fbUser.email, currentPassword)
+    await reauthenticateWithCredential(fbUser, credential)
+    await updatePassword(fbUser, newPassword)
+  }
+
+  const deleteAccount = async () => {
+    if (!user) return
+    const uid = user.id
+    // Delete user data from Firestore
+    const collections = ["gamification", "ai_config"]
+    for (const col of collections) {
+      try { await deleteDoc(doc(db, col, uid)) } catch {}
+    }
+    // Delete queried collections
+    const queriedCollections = ["test_results", "learner_progress", "spaced_rep"]
+    for (const col of queriedCollections) {
+      try {
+        const q2 = query(collection(db, col), where("userId", "==", uid))
+        const snap = await getDocs(q2)
+        for (const d of snap.docs) await deleteDoc(d.ref)
+      } catch {}
+    }
+    // Delete user profile
+    await deleteDoc(doc(db, "users", uid))
+    // Delete Firebase Auth account
+    const fbUser = auth.currentUser
+    if (fbUser) await deleteUser(fbUser)
+    setUser(null)
+  }
+
+  return (
+    <AuthContext.Provider value={{ user, loading, login, signup, logout, resetPassword, updateProfile, changeEmail, changePassword, deleteAccount }}>
+      {children}
+    </AuthContext.Provider>
+  )
+}
+
+export function useAuth() {
+  return useContext(AuthContext)
+}
