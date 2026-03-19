@@ -620,6 +620,108 @@ const DB = {
   async updateGamification(userId, data) {
     if (fb_db) await fb_db.collection('gamification').doc(userId).set(data, { merge: true });
   },
+  // --- Groups ---
+  async createGroup(group) {
+    if (!fb_db) return;
+    await fb_db.collection('groups').doc(group.id).set(group);
+  },
+  async getGroup(groupId) {
+    if (!fb_db) return null;
+    const doc = await fb_db.collection('groups').doc(groupId).get();
+    return doc.exists ? { id: doc.id, ...doc.data() } : null;
+  },
+  async getAllGroups() {
+    if (!fb_db) return [];
+    const snap = await fb_db.collection('groups').get();
+    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  },
+  async updateGroup(groupId, data) {
+    if (fb_db) await fb_db.collection('groups').doc(groupId).set(data, { merge: true });
+  },
+  async deleteGroup(groupId) { if (fb_db) await fb_db.collection('groups').doc(groupId).delete(); },
+  async getGroupsForUser(userId) {
+    // Get all groups where user is a member
+    if (!fb_db) return [];
+    const snap = await fb_db.collection('groups').get();
+    return snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(g =>
+      (g.members || []).some(m => m.userId === userId)
+    );
+  },
+  async addGroupMember(groupId, member) {
+    // member: { userId, email, name, roles: ['learner'], joinedAt }
+    if (!fb_db) return;
+    const group = await DB.getGroup(groupId);
+    if (!group) return;
+    const members = group.members || [];
+    const existing = members.findIndex(m => m.userId === member.userId);
+    if (existing >= 0) { members[existing] = { ...members[existing], ...member }; }
+    else { members.push(member); }
+    await fb_db.collection('groups').doc(groupId).update({ members });
+  },
+  async removeGroupMember(groupId, userId) {
+    if (!fb_db) return;
+    const group = await DB.getGroup(groupId);
+    if (!group) return;
+    await fb_db.collection('groups').doc(groupId).update({ members: (group.members||[]).filter(m=>m.userId!==userId) });
+  },
+  async updateGroupMemberRoles(groupId, userId, roles) {
+    if (!fb_db) return;
+    const group = await DB.getGroup(groupId);
+    if (!group) return;
+    const members = (group.members||[]).map(m => m.userId===userId ? {...m, roles} : m);
+    await fb_db.collection('groups').doc(groupId).update({ members });
+  },
+  // Group join requests
+  async requestJoinGroup(groupId, userId, userName, requestedRoles) {
+    if (!fb_db) return;
+    await fb_db.collection('group_requests').doc(`${userId}_${groupId}`).set({
+      groupId, userId, userName, requestedRoles, status: 'pending', createdAt: Date.now()
+    });
+  },
+  async getGroupJoinRequests(groupId) {
+    if (!fb_db) return [];
+    const snap = await fb_db.collection('group_requests').where('groupId','==',groupId).where('status','==','pending').get();
+    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  },
+  async respondGroupRequest(docId, status) {
+    if (fb_db) await fb_db.collection('group_requests').doc(docId).update({ status });
+  },
+  // Cross-publish
+  async crossPublishCourse(packageId, targetGroupId, mode) {
+    // mode: 'link' (shared reference) or 'copy' (independent)
+    if (!fb_db) return;
+    await fb_db.collection('cross_publish').doc(`${packageId}_${targetGroupId}`).set({
+      packageId, targetGroupId, mode, createdAt: Date.now()
+    });
+  },
+  async getCrossPublishedCourses(groupId) {
+    if (!fb_db) return [];
+    const snap = await fb_db.collection('cross_publish').where('targetGroupId','==',groupId).get();
+    return snap.docs.map(d => d.data());
+  },
+  // Delete user data (right to be forgotten)
+  async deleteAllUserData(userId) {
+    if (!fb_db) return;
+    // Delete user profile
+    await fb_db.collection('users').doc(userId).delete();
+    // Delete gamification
+    await fb_db.collection('gamification').doc(userId).delete();
+    // Delete AI config
+    await fb_db.collection('ai_config').doc(userId).delete();
+    // Delete test results
+    const results = await fb_db.collection('test_results').where('userId','==',userId).get();
+    for (const doc of results.docs) await doc.ref.delete();
+    // Delete learner progress
+    const progress = await fb_db.collection('learner_progress').where('userId','==',userId).get();
+    for (const doc of progress.docs) await doc.ref.delete();
+    // Delete spaced rep data
+    const sr = await fb_db.collection('spaced_rep').where('userId','==',userId).get();
+    for (const doc of sr.docs) await doc.ref.delete();
+    // Delete from Firebase Auth
+    if (fb_auth.currentUser && fb_auth.currentUser.uid === userId) {
+      await fb_auth.currentUser.delete();
+    }
+  },
   // --- Social / Following ---
   async sendFollowRequest(fromId, toId, fromName) {
     if (!fb_db) return;
@@ -865,6 +967,63 @@ function dobToYearLevel(dob) {
 // CONSTANTS & UTILITIES
 // ============================================================
 const SUBJECTS = ['Mathematics','English','Science','HAAS (Humanities)','Religion','Sport & PE','IT / Digital Tech','Art & Design','Music','Languages','Health','Business','Other'];
+const GROUP_TYPES = [
+  { id: 'school', name: 'School', icon: '🏫', desc: 'A school or educational institution' },
+  { id: 'company', name: 'Company / Organisation', icon: '🏢', desc: 'A business or workplace' },
+  { id: 'personal', name: 'Personal', icon: '👤', desc: 'Personal study space' },
+  { id: 'community', name: 'Community', icon: '🌐', desc: 'Open community group' },
+  { id: 'other', name: 'Other', icon: '📁', desc: 'Other type of group' },
+];
+const DEFAULT_GROUP_ID = 'default-studyflow';
+
+// Create a default personal group for a new user
+function createPersonalGroup(userId, userName) {
+  return {
+    id: `personal_${userId}`, name: `${userName}'s Space`, type: 'personal',
+    official: false, createdBy: userId, createdAt: Date.now(),
+    members: [{ userId, email: '', name: userName, roles: ['admin','publisher','learner','mentor'], joinedAt: Date.now() }],
+    inviteCode: genId(), description: 'Your personal study space'
+  };
+}
+
+// ACARA school lookup (Australian Curriculum schools)
+async function searchAustralianSchools(query) {
+  if (!query || query.length < 3) return [];
+  try {
+    // Use the ACARA My School API (publicly accessible)
+    const resp = await fetch(`https://www.myschool.edu.au/api/search/school?SearchText=${encodeURIComponent(query)}&PageSize=10`);
+    if (!resp.ok) throw new Error('API error');
+    const data = await resp.json();
+    return (data.Results || data.results || []).map(s => ({
+      name: s.SchoolName || s.schoolName || s.Name,
+      suburb: s.Suburb || s.suburb || '',
+      state: s.State || s.state || '',
+      postcode: s.Postcode || s.postcode || '',
+      sector: s.SchoolSector || s.schoolSector || '',
+      id: s.AGEId || s.SchoolId || ''
+    }));
+  } catch (e) {
+    console.warn('ACARA search failed, using fallback:', e);
+    return []; // Fallback — user types name manually
+  }
+}
+
+// ABN lookup (Australian Business Register)
+async function searchABN(query) {
+  if (!query || query.length < 3) return [];
+  try {
+    // ABR provides a public lookup — but requires a GUID key for the API
+    // For now, return empty and let user type manually
+    // In the full rebuild, we'll proxy this through a backend
+    return [];
+  } catch (e) { return []; }
+}
+
+// Generate a unique invite link for a group
+function generateInviteLink(groupId, roles) {
+  const params = new URLSearchParams({ group: groupId, roles: roles.join(',') });
+  return `${window.location.origin}${window.location.pathname}?invite=${groupId}&roles=${roles.join(',')}`;
+}
 const YEAR_LEVELS = ['Year 7','Year 8','Year 9','Year 10','Year 11','Year 12'];
 const CONTENT_TYPES = { RESEARCH: 'research', PRACTICE_TEST: 'practice_test' };
 
@@ -1526,11 +1685,39 @@ A quadratic equation has the form ax² + bx + c = 0. The solutions can be found 
 // APP — Firebase auth with fallback to local mode
 // ============================================================
 function App() {
-  const [user, setUser] = useState(null); // { id, name, email, roles:[], status, isAdmin }
+  const [user, setUser] = useState(null);
   const [packages, setPackages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [authReady, setAuthReady] = useState(!firebaseConfigured);
-  const [activeView, setActiveView] = useState(null); // 'learner', 'author', 'admin'
+  const [activeView, setActiveView] = useState(null);
+  const [darkMode, setDarkMode] = useState(true);
+  const [myGroups, setMyGroups] = useState([]);
+  const [activeGroup, setActiveGroup] = useState(null); // current group context
+  const [inviteParams, setInviteParams] = useState(null); // from URL params
+
+  // Check for invite link on load
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const inviteGroup = params.get('invite');
+    const inviteRoles = params.get('roles');
+    if (inviteGroup) {
+      setInviteParams({ groupId: inviteGroup, roles: inviteRoles ? inviteRoles.split(',') : ['learner'] });
+      // Clean URL
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, []);
+
+  // Apply theme
+  useEffect(() => {
+    document.documentElement.style.setProperty('--bg', darkMode ? '#0a0a0f' : '#f5f5fa');
+    document.documentElement.style.setProperty('--bg-card', darkMode ? '#16161f' : '#ffffff');
+    document.documentElement.style.setProperty('--bg-elevated', darkMode ? '#1c1c28' : '#f0f0f5');
+    document.documentElement.style.setProperty('--text', darkMode ? '#f0f0f5' : '#1a1a2e');
+    document.documentElement.style.setProperty('--text-secondary', darkMode ? '#9d9daf' : '#555566');
+    document.documentElement.style.setProperty('--text-muted', darkMode ? '#6b6b80' : '#888899');
+    document.documentElement.style.setProperty('--border', darkMode ? '#2a2a3d' : '#e0e0e8');
+    document.documentElement.style.setProperty('--bg-card-hover', darkMode ? '#1e1e2a' : '#f8f8fc');
+  }, [darkMode]);
 
   // Listen for Firebase auth state
   useEffect(() => {
@@ -1552,13 +1739,37 @@ function App() {
             profile.status = 'approved';
             await DB.saveUser(fbUser.uid, { roles: profile.roles, status: 'approved' });
           }
-          setUser({ id: fbUser.uid, name: profile.name, email: fbUser.email,
+          const userData = { id: fbUser.uid, name: profile.name, email: fbUser.email,
             roles: profile.roles || [profile.role || 'learner'], status: profile.status || 'approved', isAdmin,
-            dob: profile.dob || null, yearLevel: profile.yearLevel || null });
+            dob: profile.dob || null, yearLevel: profile.yearLevel || null };
+          setUser(userData);
+          // Load groups
+          const groups = await DB.getGroupsForUser(fbUser.uid);
+          if (groups.length === 0) {
+            // Create personal group if none exist
+            const pg = createPersonalGroup(fbUser.uid, profile.name);
+            await DB.createGroup(pg);
+            setMyGroups([pg]);
+            setActiveGroup(pg.id);
+          } else {
+            setMyGroups(groups);
+            setActiveGroup(groups[0].id);
+          }
+          // Handle invite link — auto-join group
+          if (inviteParams) {
+            const existing = groups.find(g => g.id === inviteParams.groupId);
+            if (!existing) {
+              await DB.addGroupMember(inviteParams.groupId, { userId: fbUser.uid, email: fbUser.email, name: profile.name, roles: inviteParams.roles, joinedAt: Date.now() });
+              const joinedGroup = await DB.getGroup(inviteParams.groupId);
+              if (joinedGroup) { setMyGroups(prev => [...prev, joinedGroup]); setActiveGroup(joinedGroup.id); }
+              toast(`Joined group: ${joinedGroup?.name || 'group'}`, 'success');
+            }
+            setInviteParams(null);
+          }
         } else {
           setUser({ id: fbUser.uid, name: fbUser.email, email: fbUser.email, roles: ['learner'], status: 'pending', isAdmin: false });
         }
-      } else { setUser(null); }
+      } else { setUser(null); setMyGroups([]); setActiveGroup(null); }
       setAuthReady(true); setLoading(false);
     });
     return () => unsub();
@@ -1650,8 +1861,21 @@ function App() {
                 <button className="btn btn-lg" style={{background:'linear-gradient(135deg,#e17055,#fdcb6e)',color:'white'}} onClick={()=>setActiveView('mentor')}>🧭 Mentor</button>
               )}
             </div>
-            <div style={{marginTop:24,borderTop:'1px solid var(--border)',paddingTop:16}}>
-              <button className="btn btn-ghost" onClick={()=>setActiveView('profile')}>⚙️ My Profile & Settings</button>
+
+            {/* Group selector */}
+            {myGroups.length > 0 && (
+              <div style={{marginTop:20,borderTop:'1px solid var(--border)',paddingTop:16}}>
+                <h3 style={{fontSize:14,fontWeight:700,marginBottom:8}}>📂 Active Group</h3>
+                <select className="form-select" value={activeGroup||''} onChange={e=>setActiveGroup(e.target.value)} style={{marginBottom:8}}>
+                  {myGroups.map(g => <option key={g.id} value={g.id}>{g.type==='personal'?'👤':'🏫'} {g.name}</option>)}
+                </select>
+                <button className="btn btn-ghost btn-sm" onClick={()=>setActiveView('groups')} style={{width:'100%'}}>🏫 Manage Groups</button>
+              </div>
+            )}
+
+            <div style={{marginTop:16,borderTop:'1px solid var(--border)',paddingTop:16,display:'flex',gap:8,justifyContent:'center'}}>
+              <button className="btn btn-ghost btn-sm" onClick={()=>setActiveView('profile')}>⚙️ Profile</button>
+              <button className="btn btn-ghost btn-sm" onClick={()=>setDarkMode(!darkMode)}>{darkMode?'☀️ Light':'🌙 Dark'}</button>
             </div>
           </div>
         </div>
@@ -1659,11 +1883,12 @@ function App() {
     );
   }
 
+  if (currentView === 'groups') return <GroupsApp user={user} myGroups={myGroups} setMyGroups={setMyGroups} activeGroup={activeGroup} setActiveGroup={setActiveGroup} onBack={()=>setActiveView(null)} onLogout={handleLogout} />;
   if (currentView === 'profile') return <ProfileScreen user={user} setUser={setUser} onBack={()=>setActiveView(null)} onLogout={handleLogout} />;
   if (currentView === 'admin') return <AdminApp user={user} onSwitchView={setActiveView} onLogout={handleLogout} />;
-  if (currentView === 'author') return <AuthorApp user={user} packages={packages} setPackages={setPackages} onSavePkg={savePackage} onDeletePkg={deletePackage} onSwitchView={availableViews.length>1?setActiveView:null} onLogout={handleLogout} />;
+  if (currentView === 'author') return <AuthorApp user={user} packages={packages} setPackages={setPackages} onSavePkg={savePackage} onDeletePkg={deletePackage} activeGroup={activeGroup} myGroups={myGroups} onSwitchView={availableViews.length>1?setActiveView:null} onLogout={handleLogout} />;
   if (currentView === 'mentor') return <MentorApp user={user} onSwitchView={availableViews.length>1?setActiveView:null} onLogout={handleLogout} />;
-  return <LearnerApp user={user} packages={packages.filter(p=>p.status==='published')} onSwitchView={availableViews.length>1?setActiveView:null} onLogout={handleLogout} />;
+  return <LearnerApp user={user} packages={packages.filter(p=>p.status==='published')} myGroups={myGroups} onSwitchView={availableViews.length>1?setActiveView:null} onLogout={handleLogout} />;
 }
 
 // ============================================================
@@ -1878,6 +2103,437 @@ function AuthScreen({ onLogin }) {
 }
 
 // ============================================================
+// CROSS-PUBLISH PANEL — publish course to other groups
+function CrossPublishPanel({ packageId, packageName, userId, currentGroupId, crossPublished, onUpdate }) {
+  const [groups, setGroups] = useState([]);
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => {
+    DB.getGroupsForUser(userId).then(g => { setGroups(g.filter(gr => gr.id !== currentGroupId)); setLoaded(true); });
+  }, [userId]);
+
+  if (!loaded || groups.length === 0) return null;
+
+  const published = crossPublished || [];
+
+  return (
+    <div className="form-group">
+      <label className="form-label">📢 Cross-Publish to Other Groups</label>
+      <div className="form-hint" style={{marginBottom:8}}>Share this course with other groups you have publisher access to.</div>
+      {groups.map(g => {
+        const isPublished = published.find(p => p.groupId === g.id);
+        const hasPublisherAccess = (g.members||[]).some(m => m.userId === userId && (m.roles||[]).includes('publisher'));
+        if (!hasPublisherAccess && !isPublished) return null;
+        return (
+          <div key={g.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 8px',background:'var(--bg)',borderRadius:'var(--radius-xs)',marginBottom:4,fontSize:12}}>
+            <span>{GROUP_TYPES.find(t=>t.id===g.type)?.icon||'📂'} {g.name}</span>
+            {isPublished ? (
+              <div style={{display:'flex',alignItems:'center',gap:6}}>
+                <span style={{color:'var(--success)',fontSize:11}}>✓ {isPublished.mode==='link'?'Linked':'Copied'}</span>
+                <button style={{background:'none',border:'none',color:'var(--text-muted)',cursor:'pointer',fontSize:11}} onClick={()=>onUpdate(published.filter(p=>p.groupId!==g.id))}>Remove</button>
+              </div>
+            ) : (
+              <div style={{display:'flex',gap:4}}>
+                <button className="btn btn-sm btn-ghost" style={{fontSize:10,padding:'2px 8px'}} onClick={async()=>{
+                  await DB.crossPublishCourse(packageId, g.id, 'link');
+                  onUpdate([...published, { groupId: g.id, groupName: g.name, mode: 'link' }]);
+                  toast(`Linked to ${g.name}`,'success');
+                }}>🔗 Link</button>
+                <button className="btn btn-sm btn-ghost" style={{fontSize:10,padding:'2px 8px'}} onClick={async()=>{
+                  await DB.crossPublishCourse(packageId, g.id, 'copy');
+                  onUpdate([...published, { groupId: g.id, groupName: g.name, mode: 'copy' }]);
+                  toast(`Copied to ${g.name}`,'success');
+                }}>📋 Copy</button>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ============================================================
+// JOIN REQUESTS PANEL — shows pending join requests for a group
+function JoinRequestsPanel({ groupId, onApprove, onReject }) {
+  const [requests, setRequests] = useState([]);
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => { DB.getGroupJoinRequests(groupId).then(r => { setRequests(r); setLoaded(true); }); }, [groupId]);
+  if (!loaded || requests.length === 0) return null;
+  return (
+    <div className="card" style={{padding:14,marginBottom:12,borderColor:'rgba(253,203,110,.3)'}}>
+      <h3 style={{fontSize:14,fontWeight:700,marginBottom:8,color:'var(--warning)'}}>⏳ Join Requests ({requests.length})</h3>
+      {requests.map(r => (
+        <div key={r.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 0',borderBottom:'1px solid var(--border)',fontSize:12}}>
+          <div>
+            <div style={{fontWeight:600}}>{r.userName}</div>
+            <div style={{color:'var(--text-muted)'}}>Wants: {(r.requestedRoles||['learner']).join(', ')}</div>
+          </div>
+          <div style={{display:'flex',gap:4}}>
+            <button className="btn btn-success btn-sm" style={{fontSize:10,padding:'3px 8px'}} onClick={()=>{onApprove(r);setRequests(prev=>prev.filter(x=>x.id!==r.id));}}>✓ Approve</button>
+            <button className="btn btn-ghost btn-sm" style={{fontSize:10,padding:'3px 8px'}} onClick={()=>{onReject(r);setRequests(prev=>prev.filter(x=>x.id!==r.id));}}>✗ Reject</button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// VERIFICATION FORM — collect official group verification details
+function VerificationForm({ group, onSubmit }) {
+  const [contactName, setContactName] = useState('');
+  const [officePhone, setOfficePhone] = useState('');
+  const [mobile, setMobile] = useState('');
+  const [officialEmail, setOfficialEmail] = useState('');
+  const [abn, setAbn] = useState('');
+  const [notes, setNotes] = useState('');
+
+  return (
+    <div className="fade-in">
+      <p style={{fontSize:12,color:'var(--text-secondary)',marginBottom:12}}>
+        To verify this as an official {group.type} group, please provide the details of an authorised contact person
+        and upload a letter on official letterhead confirming their authority to administer this group.
+      </p>
+      <div className="form-group" style={{marginBottom:8}}>
+        <label className="form-label">Official Contact Name *</label>
+        <input className="form-input" value={contactName} onChange={e=>setContactName(e.target.value)} placeholder="Full name of authorised person" />
+      </div>
+      <div className="form-row" style={{marginBottom:8}}>
+        <div className="form-group">
+          <label className="form-label">Office Phone *</label>
+          <input className="form-input" value={officePhone} onChange={e=>setOfficePhone(e.target.value)} placeholder="02 1234 5678" />
+        </div>
+        <div className="form-group">
+          <label className="form-label">Mobile</label>
+          <input className="form-input" value={mobile} onChange={e=>setMobile(e.target.value)} placeholder="0412 345 678" />
+        </div>
+      </div>
+      <div className="form-group" style={{marginBottom:8}}>
+        <label className="form-label">Official Email Address *</label>
+        <input className="form-input" type="email" value={officialEmail} onChange={e=>setOfficialEmail(e.target.value)} placeholder="contact@school.edu.au or contact@company.com.au" />
+        <div className="form-hint">Must be from the school/company domain (not personal email)</div>
+      </div>
+      {group.type === 'company' && (
+        <div className="form-group" style={{marginBottom:8}}>
+          <label className="form-label">ABN (Australian Business Number) *</label>
+          <input className="form-input" value={abn} onChange={e=>setAbn(e.target.value)} placeholder="XX XXX XXX XXX" />
+          <div className="form-hint">Must match the ABN on the letterhead document</div>
+        </div>
+      )}
+      <div className="form-group" style={{marginBottom:8}}>
+        <label className="form-label">Verification Document</label>
+        <div className="upload-area" style={{padding:14}}>
+          <h4 style={{fontSize:13}}>📄 Upload letter of authority (PDF)</h4>
+          <p style={{fontSize:11,color:'var(--text-muted)'}}>Letter on official {group.type} letterhead confirming authority to administer this StudyFlow group.{group.type==='company'?' Must include ABN.':''}</p>
+          <div className="form-hint" style={{marginTop:6,color:'var(--warning)'}}>⚠️ File upload requires Firebase Storage (coming in the architecture rebuild). For now, email the document to the super admin after submitting this form.</div>
+        </div>
+      </div>
+      <div className="form-group" style={{marginBottom:8}}>
+        <label className="form-label">Additional Notes</label>
+        <textarea className="form-textarea" value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Any additional context..." style={{minHeight:50}} />
+      </div>
+      <button className="btn btn-primary btn-sm" onClick={()=>{
+        if(!contactName.trim()||!officePhone.trim()||!officialEmail.trim()) { toast('Please fill in all required fields','error'); return; }
+        if(group.type==='company'&&!abn.trim()) { toast('ABN is required for company verification','error'); return; }
+        onSubmit({ contactName, officePhone, mobile, officialEmail, abn, notes, submittedAt: Date.now() });
+      }} disabled={!contactName.trim()||!officePhone.trim()||!officialEmail.trim()}>
+        📤 Submit Verification Request
+      </button>
+    </div>
+  );
+}
+
+// ============================================================
+// GROUPS APP — Create, manage, and browse groups
+// ============================================================
+function GroupsApp({ user, myGroups, setMyGroups, activeGroup, setActiveGroup, onBack, onLogout }) {
+  const [screen, setScreen] = useState('list'); // list, create, manage, browse
+  const [editingGroup, setEditingGroup] = useState(null);
+  const [allGroups, setAllGroups] = useState([]);
+  const [schoolSearch, setSchoolSearch] = useState('');
+  const [schoolResults, setSchoolResults] = useState([]);
+  const [newGroup, setNewGroup] = useState({ type:'school', name:'', description:'', official:false });
+  const [inviteRoles, setInviteRoles] = useState(['learner']);
+  const [groupRequests, setGroupRequests] = useState([]);
+  const { showToast, showConfirm } = useModal();
+
+  const loadBrowseGroups = async () => {
+    const all = await DB.getAllGroups();
+    setAllGroups(all.filter(g => g.type !== 'personal'));
+  };
+
+  return (
+    <div className="app">
+      <div className="gradient-bg" />
+      <nav className="nav">
+        <button className="nav-btn" onClick={screen==='list'?onBack:()=>setScreen('list')}>← Back</button>
+        <div className="nav-logo">StudyFlow</div>
+        <div className="nav-right"><span className="nav-user">{user.name}</span><button className="nav-btn" onClick={onLogout}>Logout</button></div>
+      </nav>
+      <div className="main">
+        {/* GROUP LIST */}
+        {screen === 'list' && (
+          <div className="page fade-in">
+            <div className="page-header" style={{display:'flex',justifyContent:'space-between',flexWrap:'wrap',gap:8}}>
+              <div><h1>🏫 My Groups</h1><p>Manage your study groups</p></div>
+              <div style={{display:'flex',gap:8}}>
+                <button className="btn btn-primary btn-sm" onClick={()=>setScreen('create')}>+ Create Group</button>
+                <button className="btn btn-ghost btn-sm" onClick={()=>{setScreen('browse');loadBrowseGroups();}}>🔍 Browse</button>
+              </div>
+            </div>
+            {myGroups.map(g => (
+              <div key={g.id} className="card" style={{marginBottom:8,padding:14,cursor:'pointer',borderColor:activeGroup===g.id?'var(--primary)':'var(--border)'}} onClick={()=>{setActiveGroup(g.id);showToast(`Switched to ${g.name}`,'success');}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                  <div>
+                    <div style={{fontWeight:700,fontSize:15}}>{GROUP_TYPES.find(t=>t.id===g.type)?.icon||'📂'} {g.name}</div>
+                    <div style={{fontSize:12,color:'var(--text-muted)'}}>{g.type} · {(g.members||[]).length} members{g.official?' · ✅ Official':g.type!=='personal'?' · 🌐 Community':''}</div>
+                  </div>
+                  <div style={{display:'flex',gap:4}}>
+                    {activeGroup===g.id && <span className="status-badge published">Active</span>}
+                    {(g.members||[]).some(m=>m.userId===user.id&&m.roles?.includes('admin')) && (
+                      <button className="btn btn-ghost btn-sm" onClick={(e)=>{e.stopPropagation();setEditingGroup(g);setScreen('manage');}}>⚙️</button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* CREATE GROUP */}
+        {screen === 'create' && (
+          <div className="page fade-in" style={{maxWidth:600,margin:'0 auto'}}>
+            <h1 style={{fontSize:22,fontWeight:800,marginBottom:16}}>Create New Group</h1>
+
+            <div className="form-group">
+              <label className="form-label">Group Type</label>
+              <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+                {GROUP_TYPES.filter(t=>t.id!=='personal').map(t => (
+                  <button key={t.id} className={`filter-chip ${newGroup.type===t.id?'active':''}`} onClick={()=>setNewGroup({...newGroup,type:t.id})}>{t.icon} {t.name}</button>
+                ))}
+              </div>
+            </div>
+
+            {newGroup.type === 'school' && (
+              <div className="form-group">
+                <label className="form-label">Search Australian Schools</label>
+                <input className="form-input" value={schoolSearch} onChange={e=>setSchoolSearch(e.target.value)} placeholder="Type school name..."
+                  onKeyDown={async e=>{ if(e.key==='Enter'){ const r=await searchAustralianSchools(schoolSearch); setSchoolResults(r); }}} />
+                <button className="btn btn-ghost btn-sm" style={{marginTop:4}} onClick={async()=>{const r=await searchAustralianSchools(schoolSearch);setSchoolResults(r);}}>Search</button>
+                {schoolResults.map((s,i) => (
+                  <div key={i} className="card" style={{padding:8,marginTop:4,cursor:'pointer'}} onClick={()=>{setNewGroup({...newGroup,name:s.name,schoolData:s});setSchoolResults([]);}}>
+                    <div style={{fontWeight:600,fontSize:13}}>{s.name}</div>
+                    <div style={{fontSize:11,color:'var(--text-muted)'}}>{s.suburb}, {s.state} {s.postcode} · {s.sector}</div>
+                  </div>
+                ))}
+                <div className="form-hint">Can't find it? Type the name below.</div>
+              </div>
+            )}
+
+            <div className="form-group">
+              <label className="form-label">Group Name</label>
+              <input className="form-input" value={newGroup.name} onChange={e=>setNewGroup({...newGroup,name:e.target.value})} placeholder="Enter group name..." />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Description</label>
+              <textarea className="form-textarea" value={newGroup.description||''} onChange={e=>setNewGroup({...newGroup,description:e.target.value})} placeholder="What is this group for?" />
+            </div>
+
+            {(newGroup.type==='school'||newGroup.type==='company') && (
+              <div className="form-group">
+                <div className="form-toggle" onClick={()=>setNewGroup({...newGroup,official:!newGroup.official})}>
+                  <div className={`toggle-track ${newGroup.official?'on':''}`}><div className="toggle-thumb"/></div>
+                  <div>
+                    <div className="toggle-label">Official {newGroup.type==='school'?'School':'Organisation'}</div>
+                    <div className="toggle-desc">{newGroup.official?'This is managed by the institution (may require verification)':'This is a community-managed group (students, parents, etc.)'}</div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <button className="btn btn-primary btn-lg" style={{marginTop:16}} onClick={async()=>{
+              if (!newGroup.name.trim()) { showToast('Please enter a group name','error'); return; }
+              const group = {
+                id: genId(), ...newGroup, name: newGroup.name.trim(),
+                createdBy: user.id, createdAt: Date.now(),
+                members: [{ userId: user.id, email: user.email, name: user.name, roles: ['admin','publisher','learner','mentor'], joinedAt: Date.now() }],
+                inviteCode: genId()
+              };
+              await DB.createGroup(group);
+              setMyGroups(prev => [...prev, group]);
+              setActiveGroup(group.id);
+              showToast(`Group "${group.name}" created!`,'success');
+              setScreen('list');
+              setNewGroup({ type:'school', name:'', description:'', official:false });
+            }}>Create Group</button>
+          </div>
+        )}
+
+        {/* MANAGE GROUP */}
+        {screen === 'manage' && editingGroup && (
+          <div className="page fade-in" style={{maxWidth:600,margin:'0 auto'}}>
+            <h1 style={{fontSize:22,fontWeight:800,marginBottom:4}}>{editingGroup.name}</h1>
+            <p style={{fontSize:13,color:'var(--text-secondary)',marginBottom:16}}>{editingGroup.type}{editingGroup.official?' · Official':' · Community'} · {(editingGroup.members||[]).length} members</p>
+
+            {/* Invite link */}
+            <div className="card" style={{marginBottom:12,padding:14}}>
+              <h3 style={{fontSize:14,fontWeight:700,marginBottom:8}}>🔗 Invite Link</h3>
+              <div style={{marginBottom:8}}>
+                <label className="form-label">Roles for new members</label>
+                <div style={{display:'flex',gap:4,flexWrap:'wrap'}}>
+                  {['learner','publisher','mentor'].map(r => (
+                    <button key={r} className={`filter-chip ${inviteRoles.includes(r)?'active':''}`} onClick={()=>setInviteRoles(prev=>prev.includes(r)?prev.filter(x=>x!==r):[...prev,r])} style={{fontSize:11}}>
+                      {r==='learner'?'🎓':r==='publisher'?'✏️':'🧭'} {r}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div style={{display:'flex',gap:6}}>
+                <button className="btn btn-primary btn-sm" onClick={()=>{
+                  const link = generateInviteLink(editingGroup.id, inviteRoles);
+                  navigator.clipboard.writeText(link).then(()=>showToast('Invite link copied!','success'));
+                }}>📋 Copy Invite Link</button>
+                <div style={{fontSize:11,color:'var(--text-muted)',padding:'6px 0'}}>Code: <strong>{editingGroup.inviteCode}</strong></div>
+              </div>
+            </div>
+
+            {/* Members */}
+            <div className="card" style={{marginBottom:12,padding:14}}>
+              <h3 style={{fontSize:14,fontWeight:700,marginBottom:8}}>👥 Members ({(editingGroup.members||[]).length})</h3>
+              {(editingGroup.members||[]).map((m,i) => (
+                <div key={i} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 0',borderBottom:'1px solid var(--border)',fontSize:12}}>
+                  <div>
+                    <div style={{fontWeight:600}}>{m.name || m.email}{m.userId===editingGroup.createdBy?' 👑':''}</div>
+                    <div style={{color:'var(--text-muted)'}}>{m.email} · {(m.roles||[]).join(', ')}</div>
+                  </div>
+                  <div style={{display:'flex',gap:2}}>
+                    {['learner','publisher','mentor','admin'].map(role => (
+                      <button key={role} style={{fontSize:9,padding:'2px 6px',borderRadius:8,border:'1px solid var(--border)',cursor:'pointer',
+                        background:(m.roles||[]).includes(role)?'var(--primary)':'transparent',color:(m.roles||[]).includes(role)?'white':'var(--text-muted)'}}
+                        onClick={async()=>{
+                          const newRoles = (m.roles||[]).includes(role) ? (m.roles||[]).filter(r=>r!==role) : [...(m.roles||[]),role];
+                          if(newRoles.length===0) return;
+                          await DB.updateGroupMemberRoles(editingGroup.id, m.userId, newRoles);
+                          const updated = {...editingGroup, members: editingGroup.members.map(x=>x.userId===m.userId?{...x,roles:newRoles}:x)};
+                          setEditingGroup(updated);
+                          setMyGroups(prev=>prev.map(g=>g.id===updated.id?updated:g));
+                        }}>{role.slice(0,1).toUpperCase()}</button>
+                    ))}
+                    {m.userId !== user.id && m.userId !== editingGroup.createdBy && (
+                      <button style={{fontSize:9,padding:'2px 6px',color:'var(--danger)',background:'none',border:'none',cursor:'pointer'}}
+                        onClick={async()=>{
+                          const ok = await showConfirm(`Remove ${m.name} from this group?`);
+                          if(!ok) return;
+                          await DB.removeGroupMember(editingGroup.id, m.userId);
+                          const updated = {...editingGroup, members: editingGroup.members.filter(x=>x.userId!==m.userId)};
+                          setEditingGroup(updated);
+                          setMyGroups(prev=>prev.map(g=>g.id===updated.id?updated:g));
+                        }}>✕</button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Add member by search */}
+            <div className="card" style={{padding:14,marginBottom:12}}>
+              <h3 style={{fontSize:14,fontWeight:700,marginBottom:8}}>➕ Add Member</h3>
+              <div style={{display:'flex',gap:6}}>
+                <input className="form-input" id="add-member-search" placeholder="Search by name or email..." style={{flex:1}} />
+                <button className="btn btn-primary btn-sm" onClick={async()=>{
+                  const q = document.getElementById('add-member-search')?.value;
+                  if(!q) return;
+                  const results = await DB.searchUsers(q);
+                  const nonMembers = results.filter(u=>!(editingGroup.members||[]).some(m=>m.userId===u.uid));
+                  if(nonMembers.length===0) { showToast('No users found or all already members','info'); return; }
+                  for(const u of nonMembers) {
+                    await DB.addGroupMember(editingGroup.id, { userId:u.uid, email:u.email, name:u.name, roles:['learner'], joinedAt:Date.now() });
+                  }
+                  const updated = await DB.getGroup(editingGroup.id);
+                  if(updated){setEditingGroup(updated);setMyGroups(prev=>prev.map(g=>g.id===updated.id?updated:g));}
+                  showToast(`Added ${nonMembers.length} member(s)`,'success');
+                  document.getElementById('add-member-search').value='';
+                }}>Add</button>
+              </div>
+            </div>
+
+            {/* Join requests */}
+            <JoinRequestsPanel groupId={editingGroup.id} onApprove={async(req)=>{
+              await DB.respondGroupRequest(req.id, 'accepted');
+              await DB.addGroupMember(editingGroup.id, { userId:req.userId, email:'', name:req.userName, roles:req.requestedRoles||['learner'], joinedAt:Date.now() });
+              const updated = await DB.getGroup(editingGroup.id);
+              if(updated){setEditingGroup(updated);setMyGroups(prev=>prev.map(g=>g.id===updated.id?updated:g));}
+              showToast(`${req.userName} approved`,'success');
+            }} onReject={async(req)=>{
+              await DB.respondGroupRequest(req.id, 'rejected');
+              showToast(`${req.userName} rejected`,'info');
+            }} />
+
+            {/* Verification section (for official groups) */}
+            {(editingGroup.type==='school'||editingGroup.type==='company') && (
+              <div className="card" style={{padding:14,marginTop:12,borderColor:editingGroup.official?'rgba(0,184,148,.3)':'rgba(253,203,110,.3)'}}>
+                <h3 style={{fontSize:14,fontWeight:700,marginBottom:8}}>{editingGroup.official?'✅ Official Verification':'📋 Request Official Status'}</h3>
+                {editingGroup.verificationStatus === 'approved' ? (
+                  <div style={{fontSize:13,color:'var(--success)'}}>✅ This group has been verified as an official {editingGroup.type} group.</div>
+                ) : editingGroup.verificationStatus === 'pending' ? (
+                  <div style={{fontSize:13,color:'var(--warning)'}}>⏳ Verification request is pending review by the super admin.</div>
+                ) : editingGroup.verificationStatus === 'rejected' ? (
+                  <div>
+                    <div style={{fontSize:13,color:'var(--danger)',marginBottom:8}}>❌ Verification was rejected{editingGroup.rejectionReason?`: ${editingGroup.rejectionReason}`:''}</div>
+                    <button className="btn btn-primary btn-sm" onClick={()=>{const g={...editingGroup};g.verificationStatus=null;setEditingGroup(g);}}>Resubmit</button>
+                  </div>
+                ) : (
+                  <VerificationForm group={editingGroup} onSubmit={async(verData)=>{
+                    const updated = {...editingGroup, verificationStatus:'pending', verificationData:verData, official:false};
+                    await DB.updateGroup(editingGroup.id, { verificationStatus:'pending', verificationData:verData });
+                    await DB.notifyAdmin({ type:'verification_request', groupId:editingGroup.id, groupName:editingGroup.name, message:`Official verification requested for ${editingGroup.type} group: ${editingGroup.name}` });
+                    setEditingGroup(updated);
+                    setMyGroups(prev=>prev.map(g=>g.id===updated.id?updated:g));
+                    showToast('Verification request submitted for review','success');
+                  }} />
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* BROWSE GROUPS */}
+        {screen === 'browse' && (
+          <div className="page fade-in">
+            <h1 style={{fontSize:22,fontWeight:800,marginBottom:16}}>🔍 Browse Groups</h1>
+            <input className="form-input" placeholder="Search groups..." style={{marginBottom:12}} onChange={e=>{
+              const q = e.target.value.toLowerCase();
+              if(!q) loadBrowseGroups();
+              else setAllGroups(prev=>prev.filter(g=>(g.name||'').toLowerCase().includes(q)||(g.type||'').includes(q)));
+            }} />
+            {allGroups.length === 0 ? (
+              <div className="empty-state"><div className="empty-icon">🔍</div><h3>No groups found</h3></div>
+            ) : allGroups.map(g => {
+              const isMember = myGroups.some(mg=>mg.id===g.id);
+              return (
+                <div key={g.id} className="card" style={{marginBottom:8,padding:14}}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                    <div>
+                      <div style={{fontWeight:700,fontSize:14}}>{GROUP_TYPES.find(t=>t.id===g.type)?.icon||'📂'} {g.name}{g.official?' ✅':''}</div>
+                      <div style={{fontSize:12,color:'var(--text-muted)'}}>{g.type} · {(g.members||[]).length} members · {g.description?.slice(0,50)||''}</div>
+                    </div>
+                    {isMember ? <span style={{fontSize:12,color:'var(--success)'}}>✓ Joined</span> : (
+                      <button className="btn btn-primary btn-sm" onClick={async()=>{
+                        await DB.requestJoinGroup(g.id, user.id, user.name, ['learner']);
+                        showToast('Join request sent!','success');
+                      }}>Request Join</button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
 // PROFILE SCREEN — Edit name, email, password, DOB, request roles
 // ============================================================
 function ProfileScreen({ user, setUser, onBack, onLogout }) {
@@ -2079,7 +2735,21 @@ function ProfileScreen({ user, setUser, onBack, onLogout }) {
           {/* Danger zone */}
           <div className="card" style={{marginBottom:40,padding:14,borderColor:'rgba(225,112,85,.3)'}}>
             <h3 style={{fontSize:14,fontWeight:700,marginBottom:8,color:'var(--danger)'}}>⚠️ Account</h3>
-            <button className="btn btn-ghost btn-sm" onClick={onLogout}>Log Out</button>
+            <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+              <button className="btn btn-ghost btn-sm" onClick={onLogout}>Log Out</button>
+              <button className="btn btn-danger btn-sm" onClick={async()=>{
+                const ok = confirm('Are you sure you want to DELETE your account and all data? This cannot be undone. All your test results, progress, and profile will be permanently removed.');
+                if(!ok) return;
+                const ok2 = confirm('FINAL WARNING: This will permanently delete your account, all test history, progress, badges, and remove you from all groups. Type OK to confirm.');
+                if(!ok2) return;
+                try {
+                  await DB.deleteAllUserData(user.id);
+                  toast('Account deleted. All your data has been removed.','info');
+                  onLogout();
+                } catch(e) { toast('Failed to delete account: ' + e.message + '. You may need to log out and log back in first.','error'); }
+              }}>🗑️ Delete Account & Data</button>
+            </div>
+            <div className="form-hint" style={{marginTop:8}}>Deleting your account removes all personal data, test results, progress, and badges. This complies with right-to-be-forgotten regulations.</div>
           </div>
         </div>
       </div>
@@ -2288,6 +2958,9 @@ function AdminApp({ user, onSwitchView, onLogout }) {
             <button className={`tab ${tab==='notifications'?'active':''}`} onClick={()=>setTab('notifications')}>
               🔔 Notifications{unreadNotifs > 0 && <span style={{background:'var(--danger)',color:'white',borderRadius:10,padding:'1px 6px',fontSize:10,marginLeft:6}}>{unreadNotifs}</span>}
             </button>
+            <button className={`tab ${tab==='verifications'?'active':''}`} onClick={()=>{setTab('verifications');}}>
+              📋 Verifications
+            </button>
           </div>
 
           {loading ? (
@@ -2382,8 +3055,79 @@ function AdminApp({ user, onSwitchView, onLogout }) {
               ))}
             </div>
           )}
+
+          {/* Verifications tab */}
+          {tab === 'verifications' && (
+            <VerificationReviewPanel />
+          )}
         </div>
       </div>
+    </div>
+  );
+}
+
+// VERIFICATION REVIEW PANEL — Super admin reviews official group verification requests
+function VerificationReviewPanel() {
+  const [groups, setGroups] = useState([]);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    DB.getAllGroups().then(all => {
+      setGroups(all.filter(g => g.verificationStatus === 'pending'));
+      setLoaded(true);
+    });
+  }, []);
+
+  const handleDecision = async (group, approved, reason) => {
+    const update = approved
+      ? { verificationStatus: 'approved', official: true, verifiedAt: Date.now() }
+      : { verificationStatus: 'rejected', official: false, rejectionReason: reason || 'Not approved' };
+    await DB.updateGroup(group.id, update);
+    setGroups(prev => prev.filter(g => g.id !== group.id));
+    toast(approved ? `${group.name} verified as official` : `${group.name} verification rejected`, approved ? 'success' : 'info');
+  };
+
+  if (!loaded) return <div style={{textAlign:'center',padding:20}}><div className="processing-spinner" style={{margin:'0 auto'}}/></div>;
+
+  return (
+    <div className="fade-in">
+      {groups.length === 0 ? (
+        <div className="empty-state"><div className="empty-icon">📋</div><h3>No pending verifications</h3><p>Official group verification requests will appear here</p></div>
+      ) : groups.map(g => {
+        const v = g.verificationData || {};
+        return (
+          <div key={g.id} className="card" style={{marginBottom:12,padding:16,borderColor:'rgba(253,203,110,.3)'}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:12}}>
+              <div>
+                <div style={{fontWeight:800,fontSize:16}}>{g.name}</div>
+                <div style={{fontSize:12,color:'var(--text-muted)'}}>{g.type} · Created by member</div>
+              </div>
+              <span className="status-badge draft">Pending Review</span>
+            </div>
+
+            <div style={{background:'var(--bg)',borderRadius:'var(--radius-xs)',padding:12,marginBottom:12}}>
+              <h4 style={{fontSize:13,fontWeight:700,marginBottom:8}}>📋 Submitted Details</h4>
+              <div style={{fontSize:12,lineHeight:2}}>
+                <div><strong>Contact:</strong> {v.contactName || 'Not provided'}</div>
+                <div><strong>Office Phone:</strong> {v.officePhone || 'Not provided'}</div>
+                <div><strong>Mobile:</strong> {v.mobile || 'Not provided'}</div>
+                <div><strong>Official Email:</strong> {v.officialEmail || 'Not provided'}</div>
+                {v.abn && <div><strong>ABN:</strong> {v.abn}</div>}
+                {v.notes && <div><strong>Notes:</strong> {v.notes}</div>}
+                <div><strong>Submitted:</strong> {v.submittedAt ? new Date(v.submittedAt).toLocaleString() : 'Unknown'}</div>
+              </div>
+            </div>
+
+            <div style={{display:'flex',gap:8}}>
+              <button className="btn btn-success btn-sm" onClick={()=>handleDecision(g, true)}>✅ Approve as Official</button>
+              <button className="btn btn-danger btn-sm" onClick={async()=>{
+                const reason = window.prompt('Rejection reason (optional):');
+                handleDecision(g, false, reason||'');
+              }}>❌ Reject</button>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -2391,7 +3135,7 @@ function AdminApp({ user, onSwitchView, onLogout }) {
 // ============================================================
 // AUTHOR APP (now called Publisher internally)
 // ============================================================
-function AuthorApp({ user, packages, setPackages, onSavePkg, onDeletePkg, onSwitchView, onLogout }) {
+function AuthorApp({ user, packages, setPackages, onSavePkg, onDeletePkg, activeGroup, myGroups, onSwitchView, onLogout }) {
   const [screen, setScreen] = useState('dashboard'); // dashboard, editor, analytics
   const [editingPkg, setEditingPkg] = useState(null);
   const [processing, setProcessing] = useState(false);
@@ -2416,6 +3160,7 @@ function AuthorApp({ user, packages, setPackages, onSavePkg, onDeletePkg, onSwit
     const newPkg = {
       id: genId(), name: t.name===undefined ? '' : (t.name||''), subject: t.subject||'', yearLevel: t.yearLevel||'', description: t.description||'',
       status: 'draft', autoResearch: t.autoResearch||false, authorId: user.id, authorName: user.name,
+      groupId: activeGroup || null, groupName: (myGroups||[]).find(g=>g.id===activeGroup)?.name || null,
       createdAt: Date.now(), updatedAt: Date.now(),
       content: [], facts: [], categories: [], testPatterns: null
     };
@@ -2958,6 +3703,12 @@ function PackageEditor({ pkg, onSave, onCancel, userId }) {
             ))}
           </div>
 
+          {/* Cross-publish to other groups */}
+          {userId && (
+            <CrossPublishPanel packageId={data.id} packageName={data.name} userId={userId} currentGroupId={data.groupId}
+              crossPublished={data.crossPublished||[]} onUpdate={(cp)=>update('crossPublished',cp)} />
+          )}
+
         </div>
       )}
 
@@ -3281,7 +4032,7 @@ function CheerButton({ userId, userName, toId }) {
   return <button className="btn btn-sm" style={{background:'rgba(253,203,110,.15)',color:'var(--warning)',border:'none',fontSize:11}} onClick={send}>💪 Cheer</button>;
 }
 
-function LearnerApp({ user, packages, onSwitchView, onLogout }) {
+function LearnerApp({ user, packages, myGroups, onSwitchView, onLogout }) {
   const [screen, setScreen] = useState('browse'); // browse, learn, test-setup, test, progress, course-detail, social
   const [activePkg, setActivePkg] = useState(null);
   const [testConfig, setTestConfig] = useState(null);
@@ -3289,6 +4040,7 @@ function LearnerApp({ user, packages, onSwitchView, onLogout }) {
   const [filterStatus, setFilterStatus] = useState('all');
   const [filterSubject, setFilterSubject] = useState('');
   const [showAllYears, setShowAllYears] = useState(false);
+  const [filterGroup, setFilterGroup] = useState('all');
   const [myProgress, setMyProgress] = useState([]);
   const [myResults, setMyResults] = useState([]);
   const [loadedData, setLoadedData] = useState(false);
@@ -3525,6 +4277,13 @@ function LearnerApp({ user, packages, onSwitchView, onLogout }) {
                 Showing all year levels. <button className="auth-link" style={{fontSize:11}} onClick={()=>setShowAllYears(false)}>Only show {user.yearLevel}</button>
               </div>
             )}
+            {/* Group filter */}
+            {(myGroups||[]).length > 1 && (
+              <div className="filters" style={{marginBottom:8}}>
+                <span className={`filter-chip ${filterGroup==='all'?'active':''}`} onClick={()=>setFilterGroup('all')}>All Groups</span>
+                {(myGroups||[]).map(g => <span key={g.id} className={`filter-chip ${filterGroup===g.id?'active':''}`} onClick={()=>setFilterGroup(filterGroup===g.id?'all':g.id)}>{GROUP_TYPES.find(t=>t.id===g.type)?.icon||'📂'} {g.name}</span>)}
+              </div>
+            )}
 
             {/* Quick stats bar */}
             {totalAttempts > 0 && (
@@ -3557,6 +4316,7 @@ function LearnerApp({ user, packages, onSwitchView, onLogout }) {
                       <div className="browse-title">{pkg.name}</div>
                       <div className="browse-desc">{pkg.description}</div>
                       <div className="pkg-meta-row">
+                        {pkg.groupName && <span className="pkg-meta-tag" style={{background:'rgba(108,92,231,.08)'}}>📂 {pkg.groupName}</span>}
                         {pkg.yearLevel && <span className="pkg-meta-tag">{pkg.yearLevel}</span>}
                         {best !== null && <span className="pkg-meta-tag" style={{background:best>=70?'rgba(0,184,148,.15)':best>=50?'rgba(253,203,110,.15)':'rgba(225,112,85,.15)',color:best>=70?'var(--success)':best>=50?'var(--warning)':'var(--danger)'}}>Best: {best}%</span>}
                         {attempts > 0 && <span className="pkg-meta-tag">{attempts} test{attempts!==1?'s':''}</span>}
