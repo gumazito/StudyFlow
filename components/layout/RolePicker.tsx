@@ -2,6 +2,7 @@
 import { useState } from 'react'
 import { useAuth } from '@/lib/contexts/AuthContext'
 import { useTheme } from '@/lib/contexts/ThemeContext'
+import { AdminDashboard } from '@/components/admin/AdminDashboard'
 
 export function RolePicker() {
   const { user, logout } = useAuth()
@@ -20,7 +21,7 @@ export function RolePicker() {
   const currentView = activeView || (availableViews.length === 1 ? availableViews[0] : null)
 
   // TODO: Replace these with actual view components in later sprints
-  if (currentView === 'admin') return <PlaceholderView name="Admin Dashboard" icon="\uD83D\uDEE1\uFE0F" onBack={() => setActiveView(null)} />
+  if (currentView === 'admin') return <AdminDashboard onSwitchView={setActiveView} onLogout={logout} />
   if (currentView === 'author') return <PlaceholderView name="Publisher" icon="\u270F\uFE0F" onBack={() => setActiveView(null)} />
   if (currentView === 'learner') return <PlaceholderView name="Learner" icon="\uD83C\uDF93" onBack={() => setActiveView(null)} />
   if (currentView === 'mentor') return <PlaceholderView name="Mentor" icon="\uD83E\uDDED" onBack={() => setActiveView(null)} />
