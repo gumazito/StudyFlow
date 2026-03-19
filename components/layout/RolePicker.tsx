@@ -3,6 +3,8 @@ import { useState } from 'react'
 import { useAuth } from '@/lib/contexts/AuthContext'
 import { useTheme } from '@/lib/contexts/ThemeContext'
 import { AdminDashboard } from '@/components/admin/AdminDashboard'
+import { ProfileScreen } from '@/components/profile/ProfileScreen'
+import { MentorDashboard } from '@/components/mentor/MentorDashboard'
 
 export function RolePicker() {
   const { user, logout } = useAuth()
@@ -24,8 +26,8 @@ export function RolePicker() {
   if (currentView === 'admin') return <AdminDashboard onSwitchView={setActiveView} onLogout={logout} />
   if (currentView === 'author') return <PlaceholderView name="Publisher" icon="\u270F\uFE0F" onBack={() => setActiveView(null)} />
   if (currentView === 'learner') return <PlaceholderView name="Learner" icon="\uD83C\uDF93" onBack={() => setActiveView(null)} />
-  if (currentView === 'mentor') return <PlaceholderView name="Mentor" icon="\uD83E\uDDED" onBack={() => setActiveView(null)} />
-  if (currentView === 'profile') return <PlaceholderView name="Profile" icon="\u2699\uFE0F" onBack={() => setActiveView(null)} />
+  if (currentView === 'mentor') return <MentorDashboard onSwitchView={setActiveView} onLogout={logout} />
+  if (currentView === 'profile') return <ProfileScreen onBack={() => setActiveView(null)} onLogout={logout} />
   if (currentView === 'groups') return <PlaceholderView name="Groups" icon="\uD83C\uDFEB" onBack={() => setActiveView(null)} />
 
   return (
