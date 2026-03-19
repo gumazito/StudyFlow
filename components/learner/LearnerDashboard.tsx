@@ -4,6 +4,8 @@ import { useAuth } from '@/lib/contexts/AuthContext'
 import { useToast } from '@/lib/contexts/ThemeContext'
 import * as DB from '@/lib/db'
 import { BADGES, getLevel, getXpForNextLevel, genId, shuffle, pickRandom, getEmoji } from '@/lib/constants'
+import { generateQuestions } from '@/lib/question-generator'
+import type { Question } from '@/lib/question-generator'
 
 interface LearnerDashboardProps {
   onSwitchView: ((view: string | null) => void) | null
@@ -68,30 +70,11 @@ export function LearnerDashboard({ onSwitchView, onLogout }: LearnerDashboardPro
 
   const goHome = () => { setScreen('browse'); setActivePkg(null); setTestQuestions([]); setTestFinished(false); setCurrentQ(0); setAnswer(null); setSubmitted(false) }
 
-  // Generate simple MCQ questions from facts
-  const generateQuestions = (facts: any[], count: number = 5) => {
-    if (facts.length < 4) return []
-    const selected = pickRandom(facts, Math.min(count * 2, facts.length))
-    return selected.slice(0, count).map(fact => {
-      const otherFacts = facts.filter(f => f.id !== fact.id)
-      const correctAnswer = fact.text.split('.')[0].slice(0, 100)
-      const distractors = pickRandom(otherFacts, 3).map(f => f.text.split('.')[0].slice(0, 100))
-      const options = shuffle([
-        { text: correctAnswer, correct: true },
-        ...distractors.map(d => ({ text: d, correct: false })),
-      ])
-      return {
-        id: genId(), type: 'mcq', category: fact.category,
-        question: `Which of the following is true about ${fact.category}?`,
-        options, correctAnswer,
-        explanation: fact.text + (fact.detail ? ' — ' + fact.detail : ''),
-      }
-    })
-  }
+  // Use the proper question generator from lib
 
   const startTest = () => {
-    if (!activePkg || !activePkg.facts || activePkg.facts.length < 4) { toast('Not enough content for a test', 'error'); return }
-    const qs = generateQuestions(activePkg.facts, 5)
+    if (!activePkg || !activePkg.facts || activePkg.facts.length < 2) { toast('Not enough content for a test', 'error'); return }
+    const qs = generateQuestions(activePkg.facts, activePkg.categories || [], 5)
     setTestQuestions(qs)
     setCurrentQ(0)
     setAnswer(null)
@@ -102,9 +85,19 @@ export function LearnerDashboard({ onSwitchView, onLogout }: LearnerDashboardPro
   }
 
   const checkAnswer = () => {
-    if (answer === null) return
+    if (answer === null || (Array.isArray(answer) && answer.length === 0)) return
     const q = testQuestions[currentQ]
-    const correct = q.options[answer]?.correct === true
+    let correct = false
+    if (q.type === 'mcq') {
+      correct = q.options?.[answer]?.correct === true
+    } else if (q.type === 'truefalse') {
+      correct = answer === q.correctAnswer
+    } else if (q.type === 'selectall') {
+      const selected = new Set(Array.isArray(answer) ? answer : [])
+      const correctIdxs = (q.options || []).map((o: any, i: number) => o.correct ? i : -1).filter((i: number) => i >= 0)
+      const wrongIdxs = (q.options || []).map((o: any, i: number) => !o.correct ? i : -1).filter((i: number) => i >= 0)
+      correct = correctIdxs.every((i: number) => selected.has(i)) && wrongIdxs.every((i: number) => !selected.has(i))
+    }
     setIsCorrect(correct)
     setSubmitted(true)
     setTestResults(prev => [...prev, { question: q, answer, correct }])
@@ -352,32 +345,67 @@ export function LearnerDashboard({ onSwitchView, onLogout }: LearnerDashboardPro
               <span className="text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>Q{currentQ + 1}/{testQuestions.length}</span>
             </div>
 
-            <span className="inline-block text-[10px] uppercase tracking-wider px-2.5 py-0.5 rounded-full font-semibold mb-3" style={{ background: 'rgba(108,92,231,.15)', color: 'var(--primary, #a29bfe)' }}>🔘 Pick One</span>
+            <span className="inline-block text-[10px] uppercase tracking-wider px-2.5 py-0.5 rounded-full font-semibold mb-3" style={{
+              background: testQuestions[currentQ]?.type === 'mcq' ? 'rgba(108,92,231,.15)' : testQuestions[currentQ]?.type === 'truefalse' ? 'rgba(253,203,110,.15)' : 'rgba(85,239,196,.15)',
+              color: testQuestions[currentQ]?.type === 'mcq' ? 'var(--primary, #a29bfe)' : testQuestions[currentQ]?.type === 'truefalse' ? 'var(--warning)' : 'var(--accent)',
+            }}>
+              {testQuestions[currentQ]?.type === 'mcq' ? '🔘 Pick One' : testQuestions[currentQ]?.type === 'truefalse' ? '✅ True or False' : '☑️ Select All'}
+            </span>
             <div className="text-lg font-bold leading-relaxed mb-5">{testQuestions[currentQ]?.question}</div>
 
-            <div className="flex flex-col gap-2">
-              {testQuestions[currentQ]?.options?.map((opt: any, i: number) => {
-                let style: any = { ...cardStyle, cursor: 'pointer', padding: '12px 14px' }
-                if (submitted && opt.correct) style = { ...style, borderColor: 'var(--success)', background: 'rgba(0,184,148,.08)' }
-                else if (submitted && i === answer && !opt.correct) style = { ...style, borderColor: 'var(--danger)', background: 'rgba(225,112,85,.08)' }
-                else if (i === answer) style = { ...style, borderColor: 'var(--primary)', background: 'rgba(108,92,231,.08)' }
-                return (
-                  <div key={i} className="flex items-center gap-3 text-sm rounded-xl transition-colors" style={style}
-                    onClick={() => { if (!submitted) setAnswer(i) }}>
-                    <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0" style={{
-                      background: submitted && opt.correct ? 'var(--success)' : submitted && i === answer && !opt.correct ? 'var(--danger)' : i === answer ? 'var(--primary)' : 'var(--bg)',
-                      color: (submitted && (opt.correct || i === answer)) || i === answer ? 'white' : 'var(--text-muted)',
-                    }}>{String.fromCharCode(65 + i)}</div>
-                    <div>{opt.text}</div>
-                  </div>
-                )
-              })}
-            </div>
+            {/* MCQ + Select All — option buttons */}
+            {(testQuestions[currentQ]?.type === 'mcq' || testQuestions[currentQ]?.type === 'selectall') && (
+              <div className="flex flex-col gap-2">
+                {testQuestions[currentQ]?.options?.map((opt: any, i: number) => {
+                  const isSelectAll = testQuestions[currentQ]?.type === 'selectall'
+                  const isSelected = isSelectAll ? (Array.isArray(answer) && answer.includes(i)) : answer === i
+                  let style: any = { ...cardStyle, cursor: submitted ? 'default' : 'pointer', padding: '12px 14px' }
+                  if (submitted && opt.correct) style = { ...style, borderColor: 'var(--success)', background: 'rgba(0,184,148,.08)' }
+                  else if (submitted && isSelected && !opt.correct) style = { ...style, borderColor: 'var(--danger)', background: 'rgba(225,112,85,.08)' }
+                  else if (isSelected) style = { ...style, borderColor: 'var(--primary)', background: 'rgba(108,92,231,.08)' }
+                  return (
+                    <div key={i} className="flex items-center gap-3 text-sm rounded-xl transition-colors" style={style}
+                      onClick={() => {
+                        if (submitted) return
+                        if (isSelectAll) {
+                          const cur = Array.isArray(answer) ? answer : []
+                          setAnswer(cur.includes(i) ? cur.filter((x: number) => x !== i) : [...cur, i])
+                        } else { setAnswer(i) }
+                      }}>
+                      <div className="w-7 h-7 flex items-center justify-center text-xs font-bold flex-shrink-0" style={{
+                        borderRadius: isSelectAll ? 4 : '50%',
+                        background: submitted && opt.correct ? 'var(--success)' : submitted && isSelected && !opt.correct ? 'var(--danger)' : isSelected ? 'var(--primary)' : 'var(--bg)',
+                        color: (submitted && (opt.correct || isSelected)) || isSelected ? 'white' : 'var(--text-muted)',
+                      }}>{isSelectAll ? (isSelected ? '✓' : ' ') : String.fromCharCode(65 + i)}</div>
+                      <div>{opt.text}</div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+
+            {/* True/False */}
+            {testQuestions[currentQ]?.type === 'truefalse' && (
+              <div className="flex gap-3">
+                {[true, false].map(val => {
+                  let style: any = { ...cardStyle, cursor: submitted ? 'default' : 'pointer', padding: '18px', flex: 1, textAlign: 'center' as const }
+                  if (submitted && val === testQuestions[currentQ]?.correctAnswer) style = { ...style, borderColor: 'var(--success)', background: 'rgba(0,184,148,.08)' }
+                  else if (submitted && val === answer && val !== testQuestions[currentQ]?.correctAnswer) style = { ...style, borderColor: 'var(--danger)', background: 'rgba(225,112,85,.08)' }
+                  else if (val === answer) style = { ...style, borderColor: 'var(--primary)', background: 'rgba(108,92,231,.08)' }
+                  return (
+                    <div key={String(val)} className="rounded-xl text-base font-bold" style={style}
+                      onClick={() => { if (!submitted) setAnswer(val) }}>
+                      {val ? '✅ True' : '❌ False'}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
 
             <div className="mt-4">
               {!submitted ? (
-                <button className="w-full py-3 rounded-xl text-sm font-bold text-white" style={{ background: 'var(--primary)', opacity: answer === null ? 0.4 : 1 }}
-                  onClick={checkAnswer} disabled={answer === null}>Check Answer</button>
+                <button className="w-full py-3 rounded-xl text-sm font-bold text-white" style={{ background: 'var(--primary)', opacity: (answer === null || answer === '' || (Array.isArray(answer) && answer.length === 0)) ? 0.4 : 1 }}
+                  onClick={checkAnswer} disabled={answer === null || (Array.isArray(answer) && answer.length === 0)}>Check Answer</button>
               ) : (
                 <>
                   <div className="p-3 rounded-xl mb-3" style={{ background: isCorrect ? 'rgba(0,184,148,.08)' : 'rgba(225,112,85,.08)', border: `1px solid ${isCorrect ? 'rgba(0,184,148,.25)' : 'rgba(225,112,85,.25)'}` }}>

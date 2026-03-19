@@ -4,6 +4,7 @@ import { useAuth } from '@/lib/contexts/AuthContext'
 import { useToast } from '@/lib/contexts/ThemeContext'
 import * as DB from '@/lib/db'
 import { SUBJECTS, YEAR_LEVELS, genId } from '@/lib/constants'
+import { PackageEditor } from './PackageEditor'
 
 interface PublisherDashboardProps {
   onSwitchView: ((view: string | null) => void) | null
@@ -16,7 +17,8 @@ export function PublisherDashboard({ onSwitchView, onLogout }: PublisherDashboar
   const [packages, setPackages] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
-  const [screen, setScreen] = useState<'dashboard' | 'analytics'>('dashboard')
+  const [screen, setScreen] = useState<'dashboard' | 'analytics' | 'editor'>('dashboard')
+  const [editingPkg, setEditingPkg] = useState<any>(null)
   const [analyticsData, setAnalyticsData] = useState<any[] | null>(null)
 
   useEffect(() => {
@@ -127,7 +129,7 @@ export function PublisherDashboard({ onSwitchView, onLogout }: PublisherDashboar
                     </div>
                     <div className="flex gap-1.5">
                       <button className="px-2.5 py-1 rounded-lg text-[11px] font-semibold" style={{ background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text-secondary)' }}
-                        onClick={() => toast('Full editor coming in next sprint — use the old app for now', 'info')}>✏️ Edit</button>
+                        onClick={() => { setEditingPkg(pkg); setScreen('editor') }}>✏️ Edit</button>
                       <button className="px-2.5 py-1 rounded-lg text-[11px] font-semibold text-white"
                         style={{ background: pkg.status === 'published' ? 'var(--warning)' : 'var(--success)', color: pkg.status === 'published' ? '#000' : '#fff' }}
                         onClick={() => togglePublish(pkg)}>{pkg.status === 'published' ? '⏸ Unpublish' : '🚀 Publish'}</button>
@@ -189,6 +191,24 @@ export function PublisherDashboard({ onSwitchView, onLogout }: PublisherDashboar
               </>
             )}
           </div>
+        )}
+
+        {screen === 'editor' && editingPkg && (
+          <PackageEditor
+            pkg={editingPkg}
+            onSave={async (updated: any) => {
+              updated.updatedAt = Date.now()
+              await DB.savePackage(updated)
+              setPackages(prev => {
+                const exists = prev.find(p => p.id === updated.id)
+                return exists ? prev.map(p => p.id === updated.id ? updated : p) : [updated, ...prev]
+              })
+              setScreen('dashboard')
+              setEditingPkg(null)
+              toast('Package saved', 'success')
+            }}
+            onCancel={() => { setScreen('dashboard'); setEditingPkg(null) }}
+          />
         )}
       </div>
     </div>

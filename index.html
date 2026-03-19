@@ -357,9 +357,10 @@ function ModalProvider({ children }) {
     });
   });
 
+  useEffect(() => { setGlobalToast(showToast); }, []);
+
   return (
-    useEffect(() => { setGlobalToast(showToast); }, []);
-    return (<ModalContext.Provider value={{ showToast, showAlert, showConfirm, showPrompt }}>
+    <ModalContext.Provider value={{ showToast, showAlert, showConfirm, showPrompt }}>
       {children}
       {/* Toast notification */}
       {toast && (
