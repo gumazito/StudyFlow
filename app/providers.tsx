@@ -3,6 +3,22 @@ import { useEffect } from 'react'
 import { AuthProvider } from '@/lib/contexts/AuthContext'
 import { ThemeProvider, ToastProvider, ModalProvider, ProcessingProvider } from '@/lib/contexts/ThemeContext'
 import { initPushNotifications, onForegroundMessage } from '@/lib/push-notifications'
+import { initAppCheck } from '@/lib/app-check'
+import { initErrorTracking } from '@/lib/error-tracking'
+import { initAriaLive, initKeyboardFocusDetection } from '@/lib/accessibility'
+
+function AppInitializer() {
+  useEffect(() => {
+    // Initialize App Check (Firebase abuse protection)
+    initAppCheck()
+    // Initialize error tracking (Sentry with Firestore fallback)
+    initErrorTracking()
+    // Initialize accessibility: ARIA live region + keyboard focus detection
+    initAriaLive()
+    initKeyboardFocusDetection()
+  }, [])
+  return null
+}
 
 function PushNotificationInit() {
   useEffect(() => {
@@ -42,6 +58,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
         <ModalProvider>
           <ProcessingProvider>
             <AuthProvider>
+              <AppInitializer />
               <PushNotificationInit />
               {children}
             </AuthProvider>

@@ -5,7 +5,11 @@ import { useToast } from '@/lib/contexts/ThemeContext'
 import { auth } from '@/lib/firebase'
 import { setPersistence, browserLocalPersistence, browserSessionPersistence } from 'firebase/auth'
 
-export function AuthScreen() {
+interface AuthScreenProps {
+  onBack?: () => void
+}
+
+export function AuthScreen({ onBack }: AuthScreenProps) {
   const [mode, setMode] = useState<'login' | 'signup' | 'forgot'>('login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -41,6 +45,7 @@ export function AuthScreen() {
 
   const handleSignup = async () => {
     if (!name.trim()) { setError('Please enter your name'); return }
+    if (!dob) { setError('Please enter your date of birth'); return }
     if (!email || !password) { setError('Please enter email and password'); return }
     if (password.length < 6) { setError('Password must be at least 6 characters'); return }
     if (selectedRoles.length === 0) { setError('Please select at least one role'); return }
@@ -69,6 +74,11 @@ export function AuthScreen() {
   return (
     <div className="min-h-screen flex items-center justify-center p-5" style={{ background: 'var(--bg)' }}>
       <div className="w-full max-w-md animate-fade-in">
+        {/* Back to landing */}
+        {onBack && (
+          <button className="text-sm mb-4" style={{ color: 'var(--text-secondary)' }} onClick={onBack}>← Back to home</button>
+        )}
+
         {/* Logo */}
         <div className="text-center mb-8">
           <h1 className="text-4xl font-black" style={{
@@ -139,8 +149,8 @@ export function AuthScreen() {
               <input className={inputClass} style={inputStyle} value={name} onChange={e => setName(e.target.value)} placeholder="Enter your name" />
             </div>
             <div className="mb-3.5">
-              <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>Date of Birth</label>
-              <input type="date" className={inputClass} style={{ ...inputStyle, colorScheme: 'dark' }} value={dob} onChange={e => setDob(e.target.value)} />
+              <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>Date of Birth <span style={{ color: 'var(--danger)' }}>*</span></label>
+              <input type="date" className={inputClass} style={{ ...inputStyle, colorScheme: 'dark' }} value={dob} onChange={e => setDob(e.target.value)} required aria-required="true" />
               {dob && dobToYearLevel(dob) && <p className="text-xs mt-1" style={{ color: 'var(--accent)' }}>Auto-detected: {dobToYearLevel(dob)}</p>}
             </div>
             <div className="mb-3.5">

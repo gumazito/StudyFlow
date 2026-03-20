@@ -13,6 +13,9 @@ import { SpotifyPlayer } from './SpotifyPlayer'
 import { PodcastPlayer } from './PodcastPlayer'
 import { moderateText } from '@/lib/content-moderation'
 import { StudyBuddy } from './StudyBuddy'
+import { AiMentor } from './AiMentor'
+import { AiVisualLearning } from './AiVisualLearning'
+import NaplanPractice from './NaplanPractice'
 
 interface LearnerDashboardProps {
   onSwitchView: ((view: string | null) => void) | null
@@ -25,7 +28,7 @@ export function LearnerDashboard({ onSwitchView, onLogout }: LearnerDashboardPro
   const { showPrompt } = useModal()
   const [packages, setPackages] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const [screen, setScreen] = useState<'browse' | 'progress' | 'social' | 'learn' | 'test-setup' | 'test' | 'detail'>('browse')
+  const [screen, setScreen] = useState<'browse' | 'progress' | 'social' | 'learn' | 'test-setup' | 'test' | 'detail' | 'naplan'>('browse')
   const [search, setSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState('all')
   const [showAllYears, setShowAllYears] = useState(false)
@@ -70,6 +73,8 @@ export function LearnerDashboard({ onSwitchView, onLogout }: LearnerDashboardPro
   const [cheers, setCheers] = useState<any[]>([])
   const [announcements, setAnnouncements] = useState<any[]>([])
   const [showStudyBuddy, setShowStudyBuddy] = useState(false)
+  const [showNaplan, setShowNaplan] = useState(false)
+  const [showVisualLearning, setShowVisualLearning] = useState(false)
   const [listeningStatuses, setListeningStatuses] = useState<Record<string, any>>({})
   const [musicShares, setMusicShares] = useState<any[]>([])
   const [privacySettings, setPrivacySettings] = useState<any>({ showInSearch: true, showProgress: true, showOnLeaderboard: true })
@@ -411,6 +416,20 @@ export function LearnerDashboard({ onSwitchView, onLogout }: LearnerDashboardPro
               ))}
             </div>
 
+            {/* NAPLAN Practice Card */}
+            <button
+              className="w-full p-3.5 mb-3 rounded-xl flex items-center gap-3 transition-transform hover:scale-[1.01]"
+              style={{ background: 'linear-gradient(135deg, rgba(0,206,201,.12), rgba(108,92,231,.12))', border: '1px solid rgba(0,206,201,.25)' }}
+              onClick={() => setShowNaplan(true)}
+            >
+              <span className="text-2xl">🇦🇺</span>
+              <div className="flex-1 text-left">
+                <div className="text-sm font-bold" style={{ color: 'var(--text)' }}>NAPLAN Practice</div>
+                <div className="text-[11px]" style={{ color: 'var(--text-muted)' }}>Year 7 &amp; 9 · Numeracy, Reading, Writing, Language</div>
+              </div>
+              <span className="text-xs px-2.5 py-1 rounded-full font-semibold" style={{ background: 'rgba(0,206,201,.2)', color: 'var(--accent)' }}>Start</span>
+            </button>
+
             {/* Year level toggle */}
             {user?.yearLevel && (
               <div className="text-[11px] mb-3" style={{ color: 'var(--text-muted)' }}>
@@ -489,6 +508,16 @@ export function LearnerDashboard({ onSwitchView, onLogout }: LearnerDashboardPro
 
             {/* AI Study Plan */}
             <StudyPlanPanel packages={packages} testResults={myResults} cardStyle={cs} />
+
+            {/* AI Mentor / Coach */}
+            <AiMentor
+              packages={packages}
+              testResults={myResults}
+              gamification={gamData}
+              currentPackage={activePkg}
+              onNavigate={(s, pkg) => { if (pkg) setActivePkg(pkg); setScreen(s as any) }}
+            />
+
             <div className="flex gap-2 mb-5 flex-wrap">
               {[{ n: totalAttempts, l: 'Tests', c: 'var(--primary)' }, { n: avgScore + '%', l: 'Avg', c: avgScore >= 70 ? 'var(--success)' : 'var(--warning)' }, { n: myProgress.length, l: 'Started', c: 'var(--accent)' }, { n: myProgress.filter((p: any) => p.completed).length, l: 'Done', c: 'var(--success)' }].map((s, i) => (
                 <div key={i} className="flex-1 min-w-[70px] p-3 rounded-xl text-center" style={cs}>
@@ -753,6 +782,7 @@ export function LearnerDashboard({ onSwitchView, onLogout }: LearnerDashboardPro
               {dueForReview.length > 0 && (
                 <button className="px-3 py-1 rounded-full text-[10px] font-semibold" style={{ background: spacedRepMode ? 'var(--warning)' : 'transparent', color: spacedRepMode ? 'white' : 'var(--text-muted)' }} onClick={() => setSpacedRepMode(!spacedRepMode)}>🧠 Review</button>
               )}
+              <button className="px-3 py-1 rounded-full text-[10px] font-semibold" style={{ background: 'transparent', color: 'var(--accent)' }} onClick={() => setShowVisualLearning(true)}>🎨 Visual</button>
             </div>
 
             {/* Spotify Study Music */}
@@ -1099,6 +1129,29 @@ export function LearnerDashboard({ onSwitchView, onLogout }: LearnerDashboardPro
           personality={studyBuddyPersonality}
           onClose={() => setShowStudyBuddy(false)}
         />
+      )}
+
+      {/* NAPLAN Practice overlay */}
+      {showNaplan && (
+        <div className="fixed inset-0 z-50" style={{ background: 'var(--bg)' }}>
+          <NaplanPractice
+            onClose={() => setShowNaplan(false)}
+            yearLevel={user?.yearLevel}
+          />
+        </div>
+      )}
+
+      {/* Visual Learning overlay */}
+      {showVisualLearning && activePkg && (
+        <div className="fixed inset-0 z-50" style={{ background: 'var(--bg)' }}>
+          <AiVisualLearning
+            facts={activePkg.facts || []}
+            packageName={activePkg.name}
+            subject={activePkg.subject || ''}
+            yearLevel={activePkg.yearLevel || user?.yearLevel || ''}
+            onClose={() => setShowVisualLearning(false)}
+          />
+        </div>
       )}
     </div>
   )

@@ -20,110 +20,116 @@ echo -e "${CYAN}═════════════════════�
 echo ""
 
 # ---- Step 0: Check we're in the right directory ----
-if [ ! -f "package.json" ]; then
-  echo -e "${RED}ERROR: package.json not found. Run this from the StudyFlow project root.${NC}"
+if [ ! -f "package.json" ] || [ ! -f "firebase.json" ]; then
+  echo -e "${RED}ERROR: Run this from the StudyFlow project root (needs package.json + firebase.json).${NC}"
   exit 1
 fi
-
-if [ ! -f "firebase.json" ]; then
-  echo -e "${RED}ERROR: firebase.json not found. Run this from the StudyFlow project root.${NC}"
-  exit 1
-fi
-
 echo -e "${GREEN}✓${NC} Project root detected"
 
-# ---- Step 1: Clean old build artifacts ----
+# ---- Step 1: Clean ----
 echo ""
-echo -e "${YELLOW}[1/7]${NC} Cleaning old build artifacts..."
+echo -e "${YELLOW}[1/8]${NC} Cleaning old build artifacts..."
 rm -rf .next out node_modules/.cache
-echo -e "${GREEN}✓${NC} Cleaned .next, out, and cache"
+rm -f cleanup.py
+echo -e "${GREEN}✓${NC} Cleaned .next, out, cache, temp files"
 
 # ---- Step 2: Install dependencies ----
 echo ""
-echo -e "${YELLOW}[2/7]${NC} Installing dependencies..."
+echo -e "${YELLOW}[2/8]${NC} Installing dependencies..."
 npm install --prefer-offline 2>&1 | tail -3
 echo -e "${GREEN}✓${NC} Dependencies installed"
 
-# ---- Step 3: Build the Next.js app ----
+# ---- Step 3: Build ----
 echo ""
-echo -e "${YELLOW}[3/7]${NC} Building Next.js app (static export)..."
+echo -e "${YELLOW}[3/8]${NC} Building Next.js app (static export)..."
 npm run build 2>&1 | tail -10
 if [ ! -d "out" ]; then
   echo -e "${RED}ERROR: Build failed — 'out' directory not created.${NC}"
-  echo -e "${RED}Check the build output above for errors.${NC}"
+  echo -e "${RED}Run 'npx tsc --noEmit' to check for TypeScript errors.${NC}"
   exit 1
 fi
 echo -e "${GREEN}✓${NC} Build successful — static files in out/"
 
-# ---- Step 4: Deploy Firestore security rules ----
+# ---- Step 4: Deploy all Firebase rules (Firestore + Storage + Indexes) ----
 echo ""
-echo -e "${YELLOW}[4/7]${NC} Deploying Firestore security rules..."
-if [ -f "firestore.rules" ]; then
-  firebase deploy --only firestore:rules --project studyflow-f2e7a 2>&1 | tail -5
-  echo -e "${GREEN}✓${NC} Firestore rules deployed"
+echo -e "${YELLOW}[4/8]${NC} Deploying Firebase rules..."
+DEPLOY_TARGETS=""
+[ -f "firestore.rules" ] && DEPLOY_TARGETS="${DEPLOY_TARGETS}firestore:rules,"
+[ -f "storage.rules" ] && DEPLOY_TARGETS="${DEPLOY_TARGETS}storage,"
+[ -f "firestore.indexes.json" ] && DEPLOY_TARGETS="${DEPLOY_TARGETS}firestore:indexes,"
+# Remove trailing comma
+DEPLOY_TARGETS="${DEPLOY_TARGETS%,}"
+if [ -n "$DEPLOY_TARGETS" ]; then
+  firebase deploy --only "$DEPLOY_TARGETS" --project studyflow-f2e7a 2>&1 | tail -5
+  echo -e "${GREEN}✓${NC} Firebase rules deployed ($DEPLOY_TARGETS)"
 else
-  echo -e "${YELLOW}⚠${NC} firestore.rules not found — skipping"
+  echo -e "${YELLOW}⚠${NC} No rules files found — skipping"
 fi
 
-# ---- Step 5: Deploy Firestore indexes (if any) ----
+# ---- Step 5: Deploy to Firebase Hosting ----
 echo ""
-echo -e "${YELLOW}[5/7]${NC} Deploying Firestore indexes..."
-if [ -f "firestore.indexes.json" ]; then
-  firebase deploy --only firestore:indexes --project studyflow-f2e7a 2>&1 | tail -3
-  echo -e "${GREEN}✓${NC} Firestore indexes deployed"
-else
-  echo -e "${YELLOW}⚠${NC} No firestore.indexes.json — skipping"
-fi
-
-# ---- Step 6: Deploy to Firebase Hosting ----
-echo ""
-echo -e "${YELLOW}[6/7]${NC} Deploying to Firebase Hosting..."
+echo -e "${YELLOW}[5/8]${NC} Deploying to Firebase Hosting..."
 firebase deploy --only hosting --project studyflow-f2e7a 2>&1 | tail -5
 echo -e "${GREEN}✓${NC} Site deployed to Firebase Hosting"
 
+# ---- Step 6: Type check (non-blocking) ----
+echo ""
+echo -e "${YELLOW}[6/8]${NC} Running type check..."
+npx tsc --noEmit 2>&1 | tail -5 || echo -e "${YELLOW}⚠${NC} TypeScript warnings found (non-blocking)"
+
 # ---- Step 7: Git commit & push ----
 echo ""
-echo -e "${YELLOW}[7/7]${NC} Committing and pushing to GitHub..."
-
-# Remove any temp files
-rm -f cleanup.py
-
-# Stage all changes
+echo -e "${YELLOW}[7/8]${NC} Committing and pushing to GitHub..."
 git add -A
 
-# Check if there are changes to commit
 if git diff --cached --quiet; then
   echo -e "${YELLOW}⚠${NC} No changes to commit"
 else
-  git commit -m "Deploy: Publisher AI wizard, multi-provider support, subject-aware topics, country/curriculum, simplified templates
+  COMMIT_MSG="Deploy: Landing page, Firestore indexes fix, AI components, Marketplace, WCAG, Security
 
-- Simplified template picker to Blank + AI Generated (removed subject-specific templates)
-- Blank course now auto-navigates to editor immediately
-- AI form is dynamic and subject-aware with topic chips per subject
-- Added Country/Curriculum field (Australia, UK, US, NZ, SG, etc.)
-- Added difficulty level and content amount controls
-- Multi-provider AI support: Claude, ChatGPT, Gemini, Grok, Perplexity
-- Guided step-by-step API key setup with model selection
-- Multi-AI collaboration mode (2+ providers cross-validate content)
-- PackageEditor detects AI courses and shows AI-focused Content tab
-- Added comprehensive subject topic trees for all 12 subjects
-- Firestore rules simplified to fix permissions errors
-- Deleted cleanup.py temp file"
+- Added LandingPage: hero, features grid, testimonials, pricing, for schools, CTA, footer
+- Landing page shows for unauthenticated users, Sign Up / Log In navigates to AuthScreen
+- Added JSON-LD structured data (WebApplication schema) for SEO
+- Full SEO metadata: Open Graph, Twitter Cards, robots, canonical, keywords
+- Fixed Firestore index errors: added music_shares, content_reports, mentor indexes
+- Made getMusicShares gracefully handle missing index during build
+- Integrated AiMentor into Progress tab with personalised coaching
+- Added AiVisualLearning (concept maps, timelines, flowcharts) to Learn mode
+- Wired NaplanPractice (Year 7/9) into Browse tab with full overlay
+- Added AvatarPicker to ProfileScreen with emoji/upload/generated options
+- Built MentorMarketplace: profiles, search, ratings, paid/free pricing
+- WCAG 2.1 AA: skip-to-content, focus-visible, reduced motion, contrast fixes
+- Initialised App Check (reCAPTCHA v3) and Error Tracking in providers
+- Added accessibility utilities (ARIA live, focus trap, keyboard detection)
+- Fixed color contrast: --text-muted bumped to meet 4.5:1 ratio
+- Added mentor marketplace DB functions (profiles, reviews, requests)
+- Storage rules for avatars, videos, groups, TTS audio
+- AuthScreen now accepts onBack prop for landing page navigation"
 
+  git commit -m "$COMMIT_MSG"
   git push origin main 2>&1 | tail -5
   echo -e "${GREEN}✓${NC} Changes pushed to GitHub"
+fi
+
+# ---- Step 8: Post-deploy verification ----
+echo ""
+echo -e "${YELLOW}[8/8]${NC} Verifying deployment..."
+SITE_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "https://studyflow-f2e7a.web.app" 2>/dev/null || echo "000")
+if [ "$SITE_STATUS" = "200" ]; then
+  echo -e "${GREEN}✓${NC} Site is live and responding (HTTP $SITE_STATUS)"
+else
+  echo -e "${YELLOW}⚠${NC} Site returned HTTP $SITE_STATUS — may take a moment to propagate"
 fi
 
 # ---- Done! ----
 echo ""
 echo -e "${CYAN}═══════════════════════════════════════════════════${NC}"
-echo -e "${GREEN}  ✅ DEPLOY COMPLETE${NC}"
+echo -e "${GREEN}  DEPLOY COMPLETE${NC}"
 echo -e "${CYAN}═══════════════════════════════════════════════════${NC}"
 echo ""
-echo -e "  🌐 Site:  ${CYAN}https://studyflow-f2e7a.web.app${NC}"
-echo -e "  🔒 Rules: Firestore security rules updated"
-echo -e "  📦 Git:   Pushed to gumazito/StudyFlow"
+echo -e "  Site:  ${CYAN}https://studyflow-f2e7a.web.app${NC}"
+echo -e "  Rules: Firestore + Storage rules updated"
+echo -e "  Git:   Pushed to gumazito/StudyFlow"
 echo ""
-echo -e "  ${YELLOW}Note:${NC} If you see build errors, run 'npx tsc --noEmit'"
-echo -e "  to check for TypeScript issues."
+echo -e "  ${YELLOW}Tip:${NC} If build errors occur, run: npx tsc --noEmit"
 echo ""

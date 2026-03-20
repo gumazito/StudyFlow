@@ -463,9 +463,18 @@ export async function shareMusic(fromUserId: string, fromName: string, toUserId:
 }
 
 export async function getMusicShares(userId: string) {
-  const q2 = query(collection(db, 'music_shares'), where('toUserId', '==', userId), orderBy('createdAt', 'desc'), limit(20))
-  const snap = await getDocs(q2)
-  return snap.docs.map(d => ({ id: d.id, ...d.data() }))
+  try {
+    const q2 = query(collection(db, 'music_shares'), where('toUserId', '==', userId), orderBy('createdAt', 'desc'), limit(20))
+    const snap = await getDocs(q2)
+    return snap.docs.map(d => ({ id: d.id, ...d.data() }))
+  } catch (e: any) {
+    // Gracefully handle missing composite index — returns empty until index is built
+    if (e?.message?.includes('index')) {
+      console.warn('[DB] music_shares index not yet built — run: firebase deploy --only firestore:indexes')
+      return []
+    }
+    throw e
+  }
 }
 
 // ============================================================
@@ -585,4 +594,53 @@ export async function propagateLinkedCourseUpdates(sourcePackageId: string) {
     }
   }
   return updated
+}
+
+// ─── Mentor Marketplace ─────────────────────────────────────────
+
+export async function getMentorProfiles() {
+  const snap = await getDocs(query(collection(db, 'mentor_profiles'), where('availability', '!=', 'offline')))
+  return snap.docs.map(d => ({ id: d.id, ...d.data() }))
+}
+
+export async function getMentorProfile(userId: string) {
+  const snap = await getDocs(query(collection(db, 'mentor_profiles'), where('userId', '==', userId)))
+  return snap.empty ? null : { id: snap.docs[0].id, ...snap.docs[0].data() }
+}
+
+export async function saveMentorProfile(userId: string, profile: any) {
+  const existing = await getMentorProfile(userId)
+  if (existing) {
+    await updateDoc(doc(db, 'mentor_profiles', existing.id), { ...profile, updatedAt: Date.now() })
+  } else {
+    await setDoc(doc(collection(db, 'mentor_profiles')), {
+      ...profile,
+      rating: 0,
+      reviewCount: 0,
+      studentsHelped: 0,
+      responseTime: 'hours',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    })
+  }
+}
+
+export async function getMentorReviews(mentorId: string) {
+  const snap = await getDocs(query(collection(db, 'mentor_reviews'), where('mentorId', '==', mentorId)))
+  return snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a: any, b: any) => b.createdAt - a.createdAt)
+}
+
+export async function submitMentorReview(review: { mentorId: string; studentId: string; studentName: string; rating: number; comment: string; subject: string }) {
+  await setDoc(doc(collection(db, 'mentor_reviews')), { ...review, createdAt: Date.now() })
+  // Update mentor aggregate rating
+  const allReviews = await getMentorReviews(review.mentorId)
+  const avgRating = allReviews.reduce((sum: number, r: any) => sum + r.rating, 0) / allReviews.length
+  const mentorSnap = await getDocs(query(collection(db, 'mentor_profiles'), where('userId', '==', review.mentorId)))
+  if (!mentorSnap.empty) {
+    await updateDoc(mentorSnap.docs[0].ref, { rating: Math.round(avgRating * 10) / 10, reviewCount: allReviews.length })
+  }
+}
+
+export async function sendMentorMarketplaceRequest(data: { fromUserId: string; fromName: string; toUserId: string; toName: string; subject: string; message: string; status: string }) {
+  await setDoc(doc(collection(db, 'mentor_marketplace_requests')), { ...data, createdAt: Date.now() })
 }

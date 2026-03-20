@@ -5,10 +5,12 @@ import { SUPER_USER_EMAILS } from '@/lib/firebase'
 import { AuthScreen } from '@/components/auth/AuthScreen'
 import { OnboardingWizard } from '@/components/auth/OnboardingWizard'
 import { RolePicker } from '@/components/layout/RolePicker'
+import { LandingPage } from '@/components/landing/LandingPage'
 
 export default function Home() {
   const { user, loading, logout } = useAuth()
   const [showOnboarding, setShowOnboarding] = useState(false)
+  const [showAuth, setShowAuth] = useState(false)
 
   // Check if user needs onboarding — super users/admins skip
   useEffect(() => {
@@ -31,7 +33,10 @@ export default function Home() {
     )
   }
 
-  if (!user) return <AuthScreen />
+  if (!user) {
+    if (showAuth) return <AuthScreen onBack={() => setShowAuth(false)} />
+    return <LandingPage onGetStarted={() => setShowAuth(true)} />
+  }
 
   // Show onboarding for new users
   if (showOnboarding) {

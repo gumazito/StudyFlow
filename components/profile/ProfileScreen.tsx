@@ -8,6 +8,8 @@ import { AiProviderSettings } from './AiProviderSettings'
 import { SubscriptionPanel } from './SubscriptionPanel'
 import { NotificationPreferences } from './NotificationPreferences'
 import { exportUserData } from '@/lib/data-export'
+import { AvatarPicker, UserAvatar } from './AvatarPicker'
+import type { AvatarData } from './AvatarPicker'
 
 interface ProfileScreenProps {
   onBack: () => void
@@ -27,6 +29,7 @@ export function ProfileScreen({ onBack, onLogout }: ProfileScreenProps) {
   const [busy, setBusy] = useState(false)
   const [requestedRoles, setRequestedRoles] = useState<string[]>([])
   const [privacySettings, setPrivacySettings] = useState<any>({ showInSearch: true, showProgress: true, showOnLeaderboard: true })
+  const [showAvatarPicker, setShowAvatarPicker] = useState(false)
 
   // Load privacy settings
   useState(() => {
@@ -129,6 +132,18 @@ export function ProfileScreen({ onBack, onLogout }: ProfileScreenProps) {
       <div className="max-w-xl mx-auto px-4 py-4">
         <h1 className="text-2xl font-extrabold mb-1">⚙️ My Profile</h1>
         <p className="text-sm mb-5" style={{ color: 'var(--text-secondary)' }}>Manage your account settings</p>
+
+        {/* Avatar */}
+        <div className="flex flex-col items-center mb-5">
+          <button onClick={() => setShowAvatarPicker(true)} className="relative group" title="Change avatar">
+            <UserAvatar user={user} size={72} />
+            <div className="absolute inset-0 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity" style={{ background: 'rgba(0,0,0,.45)' }}>
+              <span className="text-white text-xs font-semibold">Edit</span>
+            </div>
+          </button>
+          <div className="mt-2 text-base font-bold" style={{ color: 'var(--text)' }}>{user?.name || 'User'}</div>
+          <div className="text-xs" style={{ color: 'var(--text-muted)' }}>{user?.email}</div>
+        </div>
 
         {/* Account info */}
         <div className="p-3.5 mb-3 rounded-xl" style={cardStyle}>
@@ -317,6 +332,21 @@ export function ProfileScreen({ onBack, onLogout }: ProfileScreenProps) {
           <p className="text-[10px] mt-2" style={{ color: 'var(--text-muted)' }}>Deleting removes all data, results, progress. Complies with right-to-be-forgotten.</p>
         </div>
       </div>
+
+      {/* Avatar Picker Overlay */}
+      {showAvatarPicker && (
+        <AvatarPicker
+          currentAvatar={user?.avatarType ? { avatarType: user.avatarType, avatarEmoji: user.avatarEmoji, avatarColor: user.avatarColor, avatarUrl: user.avatarUrl } : undefined}
+          onSelect={async (avatar: AvatarData) => {
+            try {
+              await updateProfile(avatar as any)
+              toast('Avatar updated!', 'success')
+              setShowAvatarPicker(false)
+            } catch (e: any) { toast('Failed: ' + e.message, 'error') }
+          }}
+          onClose={() => setShowAvatarPicker(false)}
+        />
+      )}
     </div>
   )
 }
