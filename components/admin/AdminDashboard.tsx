@@ -4,6 +4,7 @@ import { useAuth } from '@/lib/contexts/AuthContext'
 import { useToast } from '@/lib/contexts/ThemeContext'
 import * as DB from '@/lib/db'
 import { SYSTEM_ADMIN_EMAIL } from '@/lib/firebase'
+import { NotificationSender } from './NotificationSender'
 
 interface AdminDashboardProps {
   onSwitchView: (view: string | null) => void
@@ -16,19 +17,21 @@ export function AdminDashboard({ onSwitchView, onLogout }: AdminDashboardProps) 
   const [users, setUsers] = useState<any[]>([])
   const [notifications, setNotifications] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const [tab, setTab] = useState<'users' | 'notifications' | 'verifications'>('users')
+  const [tab, setTab] = useState<'users' | 'notifications' | 'verifications' | 'send' | 'reports'>('users')
+  const [reports, setReports] = useState<any[]>([])
   const [verificationGroups, setVerificationGroups] = useState<any[]>([])
 
   useEffect(() => { loadData() }, [])
 
   const loadData = async () => {
     setLoading(true)
-    const [allUsers, notifs, allGroups] = await Promise.all([
-      DB.getAllUsers(), DB.getNotifications(), DB.getAllGroups()
+    const [allUsers, notifs, allGroups, allReports] = await Promise.all([
+      DB.getAllUsers(), DB.getNotifications(), DB.getAllGroups(), DB.getContentReports()
     ])
     setUsers(allUsers as any[])
     setNotifications(notifs as any[])
     setVerificationGroups((allGroups as any[]).filter(g => g.verificationStatus === 'pending'))
+    setReports(allReports as any[])
     setLoading(false)
   }
 
@@ -105,6 +108,17 @@ export function AdminDashboard({ onSwitchView, onLogout }: AdminDashboardProps) 
             📋 Verifications
             {verificationGroups.length > 0 && <span className="ml-1.5 px-1.5 py-0.5 rounded-full text-[10px] text-white" style={{ background: 'var(--warning)' }}>{verificationGroups.length}</span>}
           </button>
+          <button className="px-4 py-2.5 text-sm font-semibold border-b-2"
+            style={{ borderColor: tab === 'send' ? 'var(--primary)' : 'transparent', color: tab === 'send' ? 'var(--text)' : 'var(--text-muted)' }}
+            onClick={() => setTab('send')}>
+            📢 Send
+          </button>
+          <button className="px-4 py-2.5 text-sm font-semibold border-b-2"
+            style={{ borderColor: tab === 'reports' ? 'var(--primary)' : 'transparent', color: tab === 'reports' ? 'var(--text)' : 'var(--text-muted)' }}
+            onClick={() => setTab('reports')}>
+            🚩 Reports
+            {reports.filter(r => r.status === 'pending').length > 0 && <span className="ml-1.5 px-1.5 py-0.5 rounded-full text-[10px] text-white" style={{ background: 'var(--danger)' }}>{reports.filter(r => r.status === 'pending').length}</span>}
+          </button>
         </div>
 
         {loading ? (
@@ -167,6 +181,19 @@ export function AdminDashboard({ onSwitchView, onLogout }: AdminDashboardProps) 
                             {role === 'learner' ? '🎓' : role === 'author' ? '✏️' : role === 'mentor' ? '🧭' : '🛡️'} {role}
                           </button>
                         ))}
+                        <button className="text-[10px] px-2.5 py-1 rounded-lg font-semibold transition-colors"
+                          style={{
+                            background: u.manualPremium ? 'linear-gradient(135deg, #fdcb6e, #e17055)' : 'var(--bg)',
+                            color: u.manualPremium ? 'white' : 'var(--text-muted)',
+                            border: `1px solid ${u.manualPremium ? 'transparent' : 'var(--border)'}`,
+                          }}
+                          onClick={async () => {
+                            if (u.manualPremium) { await DB.revokePremium(u.uid); toast('Premium revoked', 'info') }
+                            else { await DB.grantPremium(u.uid, user!.id); toast('Premium granted!', 'success') }
+                            loadData()
+                          }}>
+                          💎 {u.manualPremium ? 'Premium ✓' : 'Grant Premium'}
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -260,6 +287,53 @@ export function AdminDashboard({ onSwitchView, onLogout }: AdminDashboardProps) 
                     </div>
                   )
                 })}
+              </div>
+            )}
+
+            {/* SEND NOTIFICATIONS TAB */}
+            {tab === 'send' && (
+              <div className="animate-fade-in">
+                <NotificationSender
+                  cardStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 12 }}
+                  inputStyle={{ background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--text)' }}
+                />
+              </div>
+            )}
+
+            {tab === 'reports' && (
+              <div className="animate-fade-in">
+                <h2 className="text-lg font-bold mb-3">🚩 Content Reports</h2>
+                {reports.length === 0 ? (
+                  <p className="text-sm text-center py-8" style={{ color: 'var(--text-muted)' }}>No reports yet</p>
+                ) : reports.map((r: any) => (
+                  <div key={r.id} className="p-3 mb-2 rounded-xl border" style={{ background: 'var(--bg-card)', borderColor: r.status === 'pending' ? 'var(--warning)' : 'var(--border)' }}>
+                    <div className="flex justify-between items-start mb-1">
+                      <div>
+                        <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold" style={{
+                          background: r.status === 'pending' ? 'rgba(253,203,110,.15)' : r.status === 'actioned' ? 'rgba(225,112,85,.15)' : 'rgba(0,184,148,.15)',
+                          color: r.status === 'pending' ? 'var(--warning)' : r.status === 'actioned' ? 'var(--danger)' : 'var(--success)',
+                        }}>{r.status}</span>
+                        <span className="text-[10px] ml-2" style={{ color: 'var(--text-muted)' }}>{r.contentType}</span>
+                      </div>
+                      <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>{new Date(r.createdAt).toLocaleDateString('en-AU')}</span>
+                    </div>
+                    <p className="text-xs mb-1"><strong>Reported by:</strong> {r.reporterName}</p>
+                    <p className="text-xs mb-1"><strong>Reason:</strong> {r.reason}</p>
+                    {r.contentText && <p className="text-xs mb-2 p-2 rounded" style={{ background: 'var(--bg)' }}>"{r.contentText}"</p>}
+                    {r.status === 'pending' && (
+                      <div className="flex gap-2">
+                        <button className="px-3 py-1 rounded-lg text-xs font-semibold" style={{ background: 'rgba(225,112,85,.15)', color: 'var(--danger)' }}
+                          onClick={async () => { await DB.resolveReport(r.id, 'actioned', 'Content removed'); await DB.checkAndSuspendUser(r.targetUserId); toast('Report actioned', 'success'); loadData() }}>
+                          Action & Check Suspension
+                        </button>
+                        <button className="px-3 py-1 rounded-lg text-xs" style={{ background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text-muted)' }}
+                          onClick={async () => { await DB.resolveReport(r.id, 'dismissed', 'No violation found'); toast('Report dismissed', 'info'); loadData() }}>
+                          Dismiss
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
               </div>
             )}
           </>

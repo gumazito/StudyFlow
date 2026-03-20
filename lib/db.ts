@@ -17,6 +17,24 @@ export async function getAllUsers() {
   return snap.docs.map(d => ({ uid: d.id, ...d.data() }))
 }
 
+export async function grantPremium(uid: string, grantedBy: string) {
+  await setDoc(doc(db, 'users', uid), {
+    manualPremium: true, premiumGrantedBy: grantedBy, premiumGrantedAt: Date.now(),
+  }, { merge: true })
+}
+
+export async function revokePremium(uid: string) {
+  await setDoc(doc(db, 'users', uid), {
+    manualPremium: false, premiumGrantedBy: null, premiumGrantedAt: null,
+  }, { merge: true })
+}
+
+export async function grantGroupPremium(groupId: string, grantedBy: string) {
+  await setDoc(doc(db, 'groups', groupId), {
+    premiumGroup: true, premiumGrantedBy: grantedBy, premiumGrantedAt: Date.now(),
+  }, { merge: true })
+}
+
 export async function updateUser(uid: string, data: any) {
   await setDoc(doc(db, 'users', uid), { ...data, updatedAt: Date.now() }, { merge: true })
 }
@@ -112,6 +130,27 @@ export async function getGamification(userId: string) {
 
 export async function updateGamification(userId: string, data: any) {
   await setDoc(doc(db, 'gamification', userId), data, { merge: true })
+}
+
+export async function getGroupLeaderboard(groupId: string) {
+  const group: any = await getGroup(groupId)
+  if (!group) return []
+  const members = group.members || []
+  const entries = await Promise.all(
+    members.map(async (m: any) => {
+      const gam = await getGamification(m.userId)
+      const userSnap = await getDoc(doc(db, 'users', m.userId))
+      const userData = userSnap.exists() ? userSnap.data() : null
+      return {
+        userId: m.userId,
+        name: userData?.name || m.name || 'Unknown',
+        xp: (gam as any).xp || 0,
+        level: (gam as any).level || 1,
+        streak: (gam as any).streak || 0,
+      }
+    })
+  )
+  return entries.sort((a, b) => b.xp - a.xp)
 }
 
 // ============================================================
@@ -235,6 +274,23 @@ export async function updateGroup(groupId: string, data: any) {
   await setDoc(doc(db, 'groups', groupId), data, { merge: true })
 }
 
+export async function getGroupByInviteCode(code: string) {
+  const snap = await getDocs(collection(db, 'groups'))
+  return snap.docs
+    .map(d => ({ id: d.id, ...d.data() }))
+    .find((g: any) => g.inviteCode === code.toUpperCase()) || null
+}
+
+export async function joinGroupByInviteCode(code: string, userId: string, userName: string) {
+  const group: any = await getGroupByInviteCode(code)
+  if (!group) throw new Error('Invalid invite code')
+  const members = group.members || []
+  if (members.some((m: any) => m.userId === userId)) throw new Error('Already a member of this group')
+  members.push({ userId, name: userName, roles: ['learner'], joinedAt: Date.now() })
+  await updateDoc(doc(db, 'groups', group.id), { members })
+  return group
+}
+
 export async function getGroupsForUser(userId: string) {
   const snap = await getDocs(collection(db, 'groups'))
   return snap.docs
@@ -298,6 +354,36 @@ export async function deleteAiConfig(userId: string) {
 }
 
 // ============================================================
+// ANNOUNCEMENTS
+// ============================================================
+export async function getAnnouncements(userId: string) {
+  const q2 = query(collection(db, 'announcements'), orderBy('createdAt', 'desc'), limit(10))
+  const snap = await getDocs(q2)
+  return snap.docs
+    .map(d => ({ id: d.id, ...d.data() }))
+    .filter((a: any) => !(a.read || []).includes(userId))
+}
+
+export async function markAnnouncementRead(announcementId: string, userId: string) {
+  const snap = await getDoc(doc(db, 'announcements', announcementId))
+  if (snap.exists()) {
+    const data = snap.data()
+    const readList = data.read || []
+    if (!readList.includes(userId)) {
+      await updateDoc(doc(db, 'announcements', announcementId), { read: [...readList, userId] })
+    }
+  }
+}
+
+export async function createAnnouncement(packageId: string, packageName: string) {
+  await addDoc(collection(db, 'announcements'), {
+    type: 'new_course', packageId, packageName,
+    message: `New course published: ${packageName}`,
+    createdAt: Date.now(), read: []
+  })
+}
+
+// ============================================================
 // SPACED REPETITION
 // ============================================================
 export async function saveFactConfidence(userId: string, packageId: string, factId: string, confidence: number) {
@@ -347,4 +433,156 @@ export async function deleteAllUserData(userId: string) {
       for (const d of snap.docs) await deleteDoc(d.ref)
     } catch {}
   }
+}
+
+// ============================================================
+// SPOTIFY LISTENING STATUS
+// ============================================================
+export async function updateListeningStatus(userId: string, track: { name: string; artist: string; uri: string } | null) {
+  await setDoc(doc(db, 'listening_status', userId), {
+    track, updatedAt: Date.now(), active: !!track,
+  }, { merge: true })
+}
+
+export async function getListeningStatus(userId: string) {
+  const snap = await getDoc(doc(db, 'listening_status', userId))
+  if (!snap.exists()) return null
+  const data = snap.data()
+  // Only show if updated in last 5 minutes
+  if (data.active && data.updatedAt > Date.now() - 5 * 60 * 1000) return data.track
+  return null
+}
+
+// ============================================================
+// MUSIC SHARING
+// ============================================================
+export async function shareMusic(fromUserId: string, fromName: string, toUserId: string, track: { name: string; artist: string; uri: string }) {
+  await addDoc(collection(db, 'music_shares'), {
+    fromUserId, fromName, toUserId, track, createdAt: Date.now(), read: false,
+  })
+}
+
+export async function getMusicShares(userId: string) {
+  const q2 = query(collection(db, 'music_shares'), where('toUserId', '==', userId), orderBy('createdAt', 'desc'), limit(20))
+  const snap = await getDocs(q2)
+  return snap.docs.map(d => ({ id: d.id, ...d.data() }))
+}
+
+// ============================================================
+// CONTENT REPORTS / FLAGS
+// ============================================================
+export async function reportContent(report: {
+  reporterId: string; reporterName: string;
+  contentType: 'cheer' | 'feedback' | 'course' | 'message';
+  contentId?: string; contentText: string;
+  targetUserId: string; reason: string;
+}) {
+  await addDoc(collection(db, 'content_reports'), {
+    ...report, status: 'pending', createdAt: Date.now(),
+  })
+  // Increment user's flag count
+  const userRef = doc(db, 'users', report.targetUserId)
+  await updateDoc(userRef, { flagCount: increment(1) })
+}
+
+export async function getContentReports(status?: string) {
+  const q2 = status
+    ? query(collection(db, 'content_reports'), where('status', '==', status), orderBy('createdAt', 'desc'))
+    : query(collection(db, 'content_reports'), orderBy('createdAt', 'desc'))
+  const snap = await getDocs(q2)
+  return snap.docs.map(d => ({ id: d.id, ...d.data() }))
+}
+
+export async function resolveReport(reportId: string, resolution: 'dismissed' | 'actioned', note?: string) {
+  await updateDoc(doc(db, 'content_reports', reportId), {
+    status: resolution, resolvedAt: Date.now(), adminNote: note || '',
+  })
+}
+
+// ============================================================
+// AUTO-SUSPENSION
+// ============================================================
+export async function checkAndSuspendUser(userId: string): Promise<boolean> {
+  const userSnap = await getDoc(doc(db, 'users', userId))
+  if (!userSnap.exists()) return false
+  const data = userSnap.data()
+  const flagCount = data.flagCount || 0
+  if (flagCount >= 3 && data.status !== 'suspended') {
+    await updateDoc(doc(db, 'users', userId), { status: 'suspended', suspendedAt: Date.now() })
+    return true
+  }
+  return false
+}
+
+// ============================================================
+// PRIVACY SETTINGS
+// ============================================================
+export async function updatePrivacySettings(userId: string, settings: {
+  showInSearch?: boolean; showProgress?: boolean; showOnLeaderboard?: boolean;
+}) {
+  await setDoc(doc(db, 'users', userId), { privacySettings: settings }, { merge: true })
+}
+
+export async function getPrivacySettings(userId: string) {
+  const snap = await getDoc(doc(db, 'users', userId))
+  const data = snap.exists() ? snap.data() : {}
+  return data.privacySettings || { showInSearch: true, showProgress: true, showOnLeaderboard: true }
+}
+
+// ============================================================
+// FEATURE GATING (FREE TIER)
+// ============================================================
+export async function getUserUsageToday(userId: string): Promise<{ testsToday: number; coursesCreated: number }> {
+  const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0)
+  const q2 = query(collection(db, 'test_results'), where('userId', '==', userId), where('timestamp', '>=', todayStart.getTime()))
+  const snap = await getDocs(q2)
+  // Count courses created by user
+  const pkgSnap = await getDocs(query(collection(db, 'packages'), where('authorId', '==', userId)))
+  return { testsToday: snap.size, coursesCreated: pkgSnap.size }
+}
+
+// ============================================================
+// VIDEO UPLOADS
+// ============================================================
+export async function addVideoToPackage(packageId: string, video: { name: string; url: string; storagePath: string }) {
+  const pkgRef = doc(db, 'packages', packageId)
+  const snap = await getDoc(pkgRef)
+  if (!snap.exists()) return
+  const data = snap.data()
+  const videos = data.videos || []
+  videos.push({ ...video, addedAt: Date.now() })
+  await updateDoc(pkgRef, { videos })
+}
+
+// ============================================================
+// LINKED COURSE PROPAGATION
+// ============================================================
+export async function propagateLinkedCourseUpdates(sourcePackageId: string) {
+  const q2 = query(collection(db, 'cross_publish'), where('packageId', '==', sourcePackageId), where('mode', '==', 'link'))
+  const snap = await getDocs(q2)
+  if (snap.empty) return []
+  const sourcePkg = await getDoc(doc(db, 'packages', sourcePackageId))
+  if (!sourcePkg.exists()) return []
+  const sourceData = sourcePkg.data()
+  const updated: string[] = []
+  for (const cpDoc of snap.docs) {
+    const cp = cpDoc.data()
+    // Update linked copies in target groups with source facts/categories
+    const targetQ = query(
+      collection(db, 'packages'),
+      where('linkedSourceId', '==', sourcePackageId),
+      where('groupId', '==', cp.targetGroupId)
+    )
+    const targets = await getDocs(targetQ)
+    for (const t of targets.docs) {
+      await updateDoc(t.ref, {
+        facts: sourceData.facts,
+        categories: sourceData.categories,
+        content: sourceData.content,
+        linkedUpdatedAt: Date.now(),
+      })
+      updated.push(t.id)
+    }
+  }
+  return updated
 }

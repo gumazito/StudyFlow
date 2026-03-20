@@ -3,8 +3,10 @@ import { useState, useEffect } from 'react'
 import { useAuth } from '@/lib/contexts/AuthContext'
 import { useToast } from '@/lib/contexts/ThemeContext'
 import * as DB from '@/lib/db'
-import { SUBJECTS, YEAR_LEVELS, genId } from '@/lib/constants'
+import { SUBJECTS, YEAR_LEVELS, DEFAULT_TEMPLATES, genId } from '@/lib/constants'
+import { useModal } from '@/lib/contexts/ThemeContext'
 import { PackageEditor } from './PackageEditor'
+import { PdfExport } from './PdfExport'
 
 interface PublisherDashboardProps {
   onSwitchView: ((view: string | null) => void) | null
@@ -14,12 +16,15 @@ interface PublisherDashboardProps {
 export function PublisherDashboard({ onSwitchView, onLogout }: PublisherDashboardProps) {
   const { user } = useAuth()
   const { toast } = useToast()
+  const { showConfirm } = useModal()
   const [packages, setPackages] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [screen, setScreen] = useState<'dashboard' | 'analytics' | 'editor'>('dashboard')
   const [editingPkg, setEditingPkg] = useState<any>(null)
   const [analyticsData, setAnalyticsData] = useState<any[] | null>(null)
+  const [showTemplates, setShowTemplates] = useState(false)
+  const [bulkEmails, setBulkEmails] = useState('')
 
   useEffect(() => {
     DB.loadPackages().then(pkgs => {
@@ -34,13 +39,16 @@ export function PublisherDashboard({ onSwitchView, onLogout }: PublisherDashboar
     return (p.name || '').toLowerCase().includes(q) || (p.subject || '').toLowerCase().includes(q)
   })
 
-  const createNew = async () => {
+  const createNew = async (template?: any) => {
     if (!user) return
+    const t = template || {}
     const pkg = {
-      id: genId(), name: 'New Course', subject: '', yearLevel: '', description: '',
-      status: 'draft', autoResearch: false, authorId: user.id, authorName: user.name,
+      id: genId(), name: t.name || 'New Course', subject: t.subject || '', yearLevel: t.yearLevel || '',
+      description: t.description || '',
+      status: 'draft', autoResearch: t.autoResearch || false, authorId: user.id, authorName: user.name,
       createdAt: Date.now(), updatedAt: Date.now(),
       content: [], facts: [], categories: [], testPatterns: null,
+      collaborators: [],
     }
     await DB.savePackage(pkg)
     setPackages(prev => [pkg, ...prev])
@@ -53,12 +61,16 @@ export function PublisherDashboard({ onSwitchView, onLogout }: PublisherDashboar
     if (newStatus === 'published' && (pkg.facts || []).length === 0 && !pkg.autoResearch) { toast('Add content or enable auto-research first', 'error'); return }
     const updated = { ...pkg, status: newStatus, updatedAt: Date.now() }
     await DB.savePackage(updated)
+    if (newStatus === 'published') {
+      try { await DB.createAnnouncement(pkg.id, pkg.name) } catch {}
+    }
     setPackages(prev => prev.map(p => p.id === pkg.id ? updated : p))
     toast(newStatus === 'published' ? 'Course published!' : 'Course unpublished', newStatus === 'published' ? 'success' : 'info')
   }
 
   const deletePkg = async (id: string) => {
-    if (!window.confirm('Delete this course?')) return
+    const confirmed = await showConfirm('Are you sure you want to delete this course? This cannot be undone.', 'Delete Course')
+    if (!confirmed) return
     await DB.deletePackage(id)
     setPackages(prev => prev.filter(p => p.id !== id))
     toast('Course deleted', 'info')
@@ -94,7 +106,7 @@ export function PublisherDashboard({ onSwitchView, onLogout }: PublisherDashboar
             <h1 className="text-2xl font-extrabold">My Learning Packages</h1>
             <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Create and manage study content</p>
           </div>
-          <button className="px-4 py-2 rounded-lg text-sm font-bold text-white" style={{ background: 'var(--primary)' }} onClick={createNew}>+ New Package</button>
+          <button className="px-4 py-2 rounded-lg text-sm font-bold text-white" style={{ background: 'var(--primary)' }} onClick={() => setShowTemplates(true)}>+ New Package</button>
         </div>
 
         <input className="w-full px-3.5 py-2.5 rounded-md text-sm mb-3" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--text)' }}
@@ -157,10 +169,13 @@ export function PublisherDashboard({ onSwitchView, onLogout }: PublisherDashboar
                 <div className="flex justify-between items-center mb-4">
                   <h2 className="text-lg font-bold">📊 Analytics</h2>
                   {analyticsData.length > 0 && (
-                    <button className="px-3 py-1 rounded-lg text-xs" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--text-secondary)' }}
-                      onClick={() => exportToCSV(analyticsData.map((r: any) => ({ Student: r.userName, Course: r.packageName, Score: r.score + '%', Date: r.timestamp ? new Date(r.timestamp).toLocaleDateString() : '' })), 'studyflow-results.csv')}>
-                      📥 Export CSV
-                    </button>
+                    <div className="flex gap-2">
+                      <button className="px-3 py-1 rounded-lg text-xs" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--text-secondary)' }}
+                        onClick={() => exportToCSV(analyticsData.map((r: any) => ({ Student: r.userName, Course: r.packageName, Score: r.score + '%', Date: r.timestamp ? new Date(r.timestamp).toLocaleDateString() : '' })), 'studyflow-results.csv')}>
+                        📥 Export CSV
+                      </button>
+                      <PdfExport results={analyticsData} packageName="All Courses" userName={user?.name || 'Publisher'} />
+                    </div>
                   )}
                 </div>
                 <div className="flex gap-2.5 flex-wrap mb-5">
@@ -209,6 +224,64 @@ export function PublisherDashboard({ onSwitchView, onLogout }: PublisherDashboar
             }}
             onCancel={() => { setScreen('dashboard'); setEditingPkg(null) }}
           />
+        )}
+
+        {/* TEMPLATE PICKER OVERLAY */}
+        {showTemplates && (
+          <div className="fixed inset-0 z-[9990] flex items-center justify-center p-5" style={{ background: 'rgba(0,0,0,.7)' }} onClick={() => setShowTemplates(false)}>
+            <div className="w-full max-w-lg p-6 rounded-xl animate-fade-in max-h-[90vh] overflow-y-auto" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }} onClick={e => e.stopPropagation()}>
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-lg font-extrabold">Create New Package</h2>
+                <button className="text-lg" style={{ color: 'var(--text-muted)' }} onClick={() => setShowTemplates(false)}>✕</button>
+              </div>
+              <p className="text-sm mb-4" style={{ color: 'var(--text-secondary)' }}>Start from a template or create from scratch:</p>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="p-4 rounded-xl text-center cursor-pointer transition-all hover:scale-[1.02]" style={{ background: 'var(--bg)', border: '1px solid var(--border)' }}
+                  onClick={() => { setShowTemplates(false); createNew({ name: '' }) }}>
+                  <div className="text-3xl">📄</div>
+                  <div className="text-sm font-bold mt-1">Blank</div>
+                  <div className="text-[10px]" style={{ color: 'var(--text-muted)' }}>Start from scratch</div>
+                </div>
+                {DEFAULT_TEMPLATES.filter(t => t.id !== 'blank').map(t => (
+                  <div key={t.id} className="p-4 rounded-xl text-center cursor-pointer transition-all hover:scale-[1.02]" style={{ background: 'var(--bg)', border: '1px solid var(--border)' }}
+                    onClick={() => { setShowTemplates(false); createNew(t) }}>
+                    <div className="text-3xl">{t.icon}</div>
+                    <div className="text-sm font-bold mt-1">{t.name}</div>
+                    <div className="text-[10px]" style={{ color: 'var(--text-muted)' }}>{(t.description || t.subject || 'Template').slice(0, 40)}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Bulk Invite Section */}
+              <div className="mt-5 pt-4 border-t" style={{ borderColor: 'var(--border)' }}>
+                <h3 className="text-sm font-bold mb-2">📧 Bulk Invite Students</h3>
+                <p className="text-xs mb-2" style={{ color: 'var(--text-muted)' }}>Paste emails (one per line or comma-separated) to generate invite links:</p>
+                <textarea
+                  className="w-full px-3 py-2 rounded-md text-xs"
+                  style={{ background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text)', minHeight: 60 }}
+                  value={bulkEmails}
+                  onChange={e => setBulkEmails(e.target.value)}
+                  placeholder={'student1@email.com\nstudent2@email.com\nstudent3@email.com'}
+                />
+                <div className="flex gap-1.5 mt-2">
+                  <button className="px-3 py-1.5 rounded-lg text-[11px]" style={{ background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text-secondary)' }}
+                    onClick={() => {
+                      const emails = bulkEmails.split(/[,\n]/).map(e => e.trim()).filter(e => e.includes('@'))
+                      if (emails.length === 0) { toast('No valid emails found', 'error'); return }
+                      const link = window.location.href.split('?')[0]
+                      const text = `You're invited to StudyFlow!\n\nSign up here: ${link}\n\nCreate an account as a Student to access learning courses.\n\nInvited emails:\n${emails.join('\n')}`
+                      navigator.clipboard.writeText(text).then(() => toast(`Invite text copied for ${emails.length} students!`, 'success')).catch(() => toast('Invite text ready — check console', 'info'))
+                    }}>📋 Copy Invite Text</button>
+                  <button className="px-3 py-1.5 rounded-lg text-[11px]" style={{ background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text-secondary)' }}
+                    onClick={() => {
+                      const emails = bulkEmails.split(/[,\n]/).map(e => e.trim()).filter(e => e.includes('@'))
+                      if (emails.length === 0) return
+                      exportToCSV(emails.map(e => ({ email: e, role: 'learner', invite_link: window.location.href.split('?')[0] })), 'studyflow-invites.csv')
+                    }}>📥 Export as CSV</button>
+                </div>
+              </div>
+            </div>
+          </div>
         )}
       </div>
     </div>

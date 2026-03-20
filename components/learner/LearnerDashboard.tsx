@@ -1,11 +1,18 @@
 'use client'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { useAuth } from '@/lib/contexts/AuthContext'
-import { useToast } from '@/lib/contexts/ThemeContext'
+import { useToast, useModal } from '@/lib/contexts/ThemeContext'
 import * as DB from '@/lib/db'
 import { BADGES, getLevel, getXpForNextLevel, genId, shuffle, pickRandom, getEmoji } from '@/lib/constants'
 import { generateQuestions } from '@/lib/question-generator'
 import type { Question } from '@/lib/question-generator'
+import { PdfExport } from '@/components/publisher/PdfExport'
+import { StudyPlanPanel } from './StudyPlanPanel'
+import { VoiceInput } from './VoiceInput'
+import { SpotifyPlayer } from './SpotifyPlayer'
+import { PodcastPlayer } from './PodcastPlayer'
+import { moderateText } from '@/lib/content-moderation'
+import { StudyBuddy } from './StudyBuddy'
 
 interface LearnerDashboardProps {
   onSwitchView: ((view: string | null) => void) | null
@@ -15,6 +22,7 @@ interface LearnerDashboardProps {
 export function LearnerDashboard({ onSwitchView, onLogout }: LearnerDashboardProps) {
   const { user } = useAuth()
   const { toast } = useToast()
+  const { showPrompt } = useModal()
   const [packages, setPackages] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [screen, setScreen] = useState<'browse' | 'progress' | 'social' | 'learn' | 'test-setup' | 'test' | 'detail'>('browse')
@@ -42,7 +50,10 @@ export function LearnerDashboard({ onSwitchView, onLogout }: LearnerDashboardPro
   // Learn state
   const [learnIndex, setLearnIndex] = useState(0)
   const [flipped, setFlipped] = useState(false)
-  const [learnMode, setLearnMode] = useState<'swipe' | 'scroll'>('swipe')
+  const [learnMode, setLearnMode] = useState<'swipe' | 'scroll' | 'tiktok'>('swipe')
+  const [spacedRepMode, setSpacedRepMode] = useState(false)
+  const [dueForReview, setDueForReview] = useState<string[]>([])
+  const [shuffledFacts, setShuffledFacts] = useState<any[]>([])
 
   // Feedback / ratings
   const [feedbackText, setFeedbackText] = useState('')
@@ -57,6 +68,16 @@ export function LearnerDashboard({ onSwitchView, onLogout }: LearnerDashboardPro
   const [followRequests, setFollowRequests] = useState<any[]>([])
   const [mentorRequests, setMentorRequests] = useState<any[]>([])
   const [cheers, setCheers] = useState<any[]>([])
+  const [announcements, setAnnouncements] = useState<any[]>([])
+  const [showStudyBuddy, setShowStudyBuddy] = useState(false)
+  const [listeningStatuses, setListeningStatuses] = useState<Record<string, any>>({})
+  const [musicShares, setMusicShares] = useState<any[]>([])
+  const [privacySettings, setPrivacySettings] = useState<any>({ showInSearch: true, showProgress: true, showOnLeaderboard: true })
+  const [testCategoryFilter, setTestCategoryFilter] = useState<string>('all')
+  const [studyBuddyPersonality, setStudyBuddyPersonality] = useState<'encouraging' | 'strict' | 'humorous'>('encouraging')
+  const [userGroups, setUserGroups] = useState<any[]>([])
+  const [groupLeaderboards, setGroupLeaderboards] = useState<Record<string, any[]>>({})
+  const [activeGroupLb, setActiveGroupLb] = useState<string | null>(null)
 
   // Load all data
   useEffect(() => {
@@ -70,7 +91,8 @@ export function LearnerDashboard({ onSwitchView, onLogout }: LearnerDashboardPro
       DB.getMentorRequests(user.id),
       DB.getCheers(user.id),
       DB.getFollowing(user.id),
-    ]).then(async ([pkgs, results, progress, gam, fReqs, mReqs, ch, followIds]) => {
+      DB.getAnnouncements(user.id),
+    ]).then(async ([pkgs, results, progress, gam, fReqs, mReqs, ch, followIds, announceRaw]) => {
       setPackages((pkgs as any[]).filter(p => p.status === 'published'))
       setMyResults(results as any[])
       setMyProgress(progress as any[])
@@ -79,6 +101,7 @@ export function LearnerDashboard({ onSwitchView, onLogout }: LearnerDashboardPro
       setMentorRequests(mReqs as any[])
       setCheers(ch as any[])
       setFollowing(followIds as string[])
+      setAnnouncements(announceRaw as any[])
 
       // Load following data
       if ((followIds as string[]).length > 0) {
@@ -93,6 +116,34 @@ export function LearnerDashboard({ onSwitchView, onLogout }: LearnerDashboardPro
         }
         setFollowingData(data)
       }
+
+      // Load listening statuses for followed users
+      const lsMap: Record<string, any> = {}
+      for (const fid of followIds as string[]) {
+        const ls = await DB.getListeningStatus(fid)
+        if (ls) lsMap[fid] = ls
+      }
+      setListeningStatuses(lsMap)
+
+      // Load music shares
+      const shares = await DB.getMusicShares(user.id)
+      setMusicShares(shares as any[])
+
+      // Load privacy settings
+      const privacy = await DB.getPrivacySettings(user.id)
+      setPrivacySettings(privacy)
+
+      // Load user's groups and group leaderboards
+      const groups = await DB.getGroupsForUser(user.id)
+      setUserGroups(groups as any[])
+      if ((groups as any[]).length > 0) {
+        const lbs: Record<string, any[]> = {}
+        for (const g of groups as any[]) {
+          lbs[g.id] = await DB.getGroupLeaderboard(g.id)
+        }
+        setGroupLeaderboards(lbs)
+      }
+
       setLoading(false)
     })
   }, [user])
@@ -145,7 +196,8 @@ export function LearnerDashboard({ onSwitchView, onLogout }: LearnerDashboardPro
   // Test functions
   const startTest = () => {
     if (!activePkg?.facts || activePkg.facts.length < 2) { toast('Not enough content', 'error'); return }
-    const qs = generateQuestions(activePkg.facts, activePkg.categories || [], testQCount, null, activePkg.testPatterns, testScope)
+    const filteredFacts = testCategoryFilter === 'all' ? activePkg.facts : activePkg.facts.filter((f: any) => f.category === testCategoryFilter)
+    const qs = generateQuestions(filteredFacts, activePkg.categories || [], testQCount, null, activePkg.testPatterns, testScope)
     if (qs.length === 0) { toast('Could not generate questions', 'error'); return }
     setTestQuestions(qs)
     setCurrentQ(0); setAnswer(null); setSubmitted(false); setIsCorrect(null)
@@ -191,9 +243,23 @@ export function LearnerDashboard({ onSwitchView, onLogout }: LearnerDashboardPro
         const lastDay = newGam.lastActive ? new Date(newGam.lastActive).toDateString() : null
         if (lastDay !== today) {
           const yesterday = new Date(Date.now() - 86400000).toDateString()
-          newGam.streak = lastDay === yesterday ? (newGam.streak || 0) + 1 : 1
+          const twoDaysAgo = new Date(Date.now() - 2 * 86400000).toDateString()
+          if (lastDay === yesterday) {
+            newGam.streak = (newGam.streak || 0) + 1
+          } else if (lastDay === twoDaysAgo && (newGam.streakFreezes || 0) > 0) {
+            // Use a streak freeze — missed one day but had a freeze token
+            newGam.streak = (newGam.streak || 0) + 1
+            newGam.streakFreezes = (newGam.streakFreezes || 0) - 1
+            newGam.freezesUsed = (newGam.freezesUsed || 0) + 1
+          } else {
+            newGam.streak = 1
+          }
           newGam.bestStreak = Math.max(newGam.bestStreak || 0, newGam.streak)
           newGam.lastActive = Date.now()
+          // Award a streak freeze every 7-day streak milestone
+          if (newGam.streak > 0 && newGam.streak % 7 === 0) {
+            newGam.streakFreezes = Math.min((newGam.streakFreezes || 0) + 1, 3) // Max 3
+          }
         }
         const newBadges = BADGES.filter(b => b.check(newGam) && !(newGam.badges || []).includes(b.id)).map(b => b.id)
         newGam.badges = [...(newGam.badges || []), ...newBadges]
@@ -208,9 +274,12 @@ export function LearnerDashboard({ onSwitchView, onLogout }: LearnerDashboardPro
 
   const submitFeedback = async () => {
     if (!feedbackText.trim() || !activePkg || !user) return
-    await DB.saveFeedback({ userId: user.id, userName: user.name, userEmail: user.email, packageId: activePkg.id, packageName: activePkg.name, message: feedbackText })
+    const mod = moderateText(feedbackText)
+    if (mod.severity === 'severe') { toast('Message contains inappropriate content and cannot be sent.', 'error'); return }
+    const messageToSend = mod.clean ? feedbackText : mod.sanitised
+    await DB.saveFeedback({ userId: user.id, userName: user.name, userEmail: user.email, packageId: activePkg.id, packageName: activePkg.name, message: messageToSend })
     setFeedbackText('')
-    toast('Feedback sent!', 'success')
+    toast(mod.clean ? 'Feedback sent!' : 'Feedback sent (some words were filtered).', 'success')
   }
 
   const saveRatings = async () => {
@@ -226,15 +295,16 @@ export function LearnerDashboard({ onSwitchView, onLogout }: LearnerDashboardPro
 
   return (
     <div className="min-h-screen" style={{ background: 'var(--bg)' }}>
-      {/* Badge popup */}
+      {/* Badge popup with animation */}
       {newBadgePopup && (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center" style={{ background: 'rgba(0,0,0,.7)' }} onClick={() => setNewBadgePopup(null)}>
-          <div className="p-8 rounded-2xl text-center animate-bounce-in" style={cs} onClick={e => e.stopPropagation()}>
-            <div className="text-6xl mb-3">{newBadgePopup.icon}</div>
-            <h2 className="text-xl font-extrabold mb-1">Badge Unlocked!</h2>
-            <div className="text-base font-bold mb-1" style={{ color: 'var(--primary)' }}>{newBadgePopup.name}</div>
-            <div className="text-sm mb-4" style={{ color: 'var(--text-secondary)' }}>{newBadgePopup.desc}</div>
-            <button className="px-6 py-2 rounded-xl text-sm font-bold text-white" style={{ background: 'var(--primary)' }} onClick={() => setNewBadgePopup(null)}>Awesome! 🎉</button>
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center" style={{ background: 'rgba(0,0,0,.8)' }} onClick={() => setNewBadgePopup(null)}>
+          <div className="p-8 rounded-2xl text-center animate-bounce-in badge-confetti relative" style={{ ...cs, borderColor: 'var(--primary)', boxShadow: '0 0 60px rgba(108,92,231,.3)' }} onClick={e => e.stopPropagation()}>
+            <div className="animate-shimmer absolute inset-0 rounded-2xl pointer-events-none" />
+            <div className="text-7xl mb-3 animate-float">{newBadgePopup.icon}</div>
+            <h2 className="text-xl font-extrabold mb-1" style={{ background: 'linear-gradient(135deg, var(--primary), var(--accent))', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>Badge Unlocked!</h2>
+            <div className="text-lg font-bold mb-1" style={{ color: 'var(--primary)' }}>{newBadgePopup.name}</div>
+            <div className="text-sm mb-5" style={{ color: 'var(--text-secondary)' }}>{newBadgePopup.desc}</div>
+            <button className="px-6 py-2.5 rounded-xl text-sm font-bold text-white" style={{ background: 'linear-gradient(135deg, var(--primary), var(--accent))' }} onClick={() => setNewBadgePopup(null)}>Awesome! 🎉</button>
           </div>
         </div>
       )}
@@ -261,6 +331,7 @@ export function LearnerDashboard({ onSwitchView, onLogout }: LearnerDashboardPro
           </div>
           <span className="font-semibold" style={{ color: 'var(--accent)' }}>{gamData.xp || 0} XP</span>
           <span style={{ color: (gamData.streak || 0) >= 3 ? 'var(--warning)' : 'var(--text-muted)' }}>{gamData.streak || 0}🔥</span>
+          {(gamData.streakFreezes || 0) > 0 && <span className="text-[10px]" title="Streak freezes available" style={{ color: 'var(--accent)' }}>🧊{gamData.streakFreezes}</span>}
         </div>
       )}
 
@@ -271,6 +342,19 @@ export function LearnerDashboard({ onSwitchView, onLogout }: LearnerDashboardPro
             <div key={c.id} className="flex justify-between items-center py-1 text-xs">
               <span>💪 <strong>{c.fromName}</strong>: {c.message}</span>
               <button className="text-[10px] px-1.5 py-0.5 rounded" style={{ color: 'var(--text-muted)' }} onClick={async () => { await DB.markCheerRead(c.id); setCheers(prev => prev.filter(x => x.id !== c.id)) }}>✓</button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* New course announcements */}
+      {announcements.length > 0 && ['browse'].includes(screen) && (
+        <div className="px-4 py-2 border-b" style={{ background: 'rgba(108,92,231,.06)', borderColor: 'rgba(108,92,231,.15)' }}>
+          {announcements.map(a => (
+            <div key={a.id} className="flex justify-between items-center py-1 text-xs">
+              <span>🆕 <strong>{a.message}</strong></span>
+              <button className="text-[10px] px-1.5 py-0.5 rounded" style={{ color: 'var(--text-muted)' }}
+                onClick={async () => { await DB.markAnnouncementRead(a.id, user!.id); setAnnouncements(prev => prev.filter(x => x.id !== a.id)) }}>Dismiss</button>
             </div>
           ))}
         </div>
@@ -367,7 +451,18 @@ export function LearnerDashboard({ onSwitchView, onLogout }: LearnerDashboardPro
                       </div>
                       <div className="text-[11px] mb-2" style={{ color: 'var(--text-muted)' }}>By {pkg.publisherDisplayName || pkg.authorName}</div>
                       <div className="flex gap-1.5">
-                        {(pkg.facts || []).length > 0 && <button className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white" style={{ background: 'var(--primary)' }} onClick={() => { setActivePkg(pkg); setLearnIndex(0); setFlipped(false); setScreen('learn') }}>⚡ Learn</button>}
+                        {(pkg.facts || []).length > 0 && <button className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white" style={{ background: 'var(--primary)' }} onClick={async () => {
+                          setActivePkg(pkg); setLearnIndex(0); setFlipped(false); setSpacedRepMode(false)
+                          setShuffledFacts(shuffle(pkg.facts || []))
+                          // Load spaced rep data
+                          if (user) {
+                            const srData = await DB.getSpacedRepData(user.id, pkg.id) as any[]
+                            const now = Date.now()
+                            const due = srData.filter(d => !d.nextReview || d.nextReview <= now).map(d => d.factId)
+                            setDueForReview(due)
+                          }
+                          setScreen('learn')
+                        }}>⚡ Learn</button>}
                         <button className="px-3 py-1.5 rounded-lg text-xs" style={{ ...cs, color: 'var(--text-secondary)' }} onClick={() => { setActivePkg(pkg); setScreen('test-setup') }}>📝 Test</button>
                         <button className="px-2 py-1.5 rounded-lg text-[10px]" style={{ color: 'var(--text-muted)' }} onClick={() => { setActivePkg(pkg); setScreen('detail') }}>📊</button>
                       </div>
@@ -391,6 +486,9 @@ export function LearnerDashboard({ onSwitchView, onLogout }: LearnerDashboardPro
         {screen === 'progress' && (
           <div className="animate-fade-in">
             <h1 className="text-xl font-extrabold mb-4">📊 My Progress</h1>
+
+            {/* AI Study Plan */}
+            <StudyPlanPanel packages={packages} testResults={myResults} cardStyle={cs} />
             <div className="flex gap-2 mb-5 flex-wrap">
               {[{ n: totalAttempts, l: 'Tests', c: 'var(--primary)' }, { n: avgScore + '%', l: 'Avg', c: avgScore >= 70 ? 'var(--success)' : 'var(--warning)' }, { n: myProgress.length, l: 'Started', c: 'var(--accent)' }, { n: myProgress.filter((p: any) => p.completed).length, l: 'Done', c: 'var(--success)' }].map((s, i) => (
                 <div key={i} className="flex-1 min-w-[70px] p-3 rounded-xl text-center" style={cs}>
@@ -454,24 +552,52 @@ export function LearnerDashboard({ onSwitchView, onLogout }: LearnerDashboardPro
                     <div>
                       <div className="font-bold text-sm">{fd.name}</div>
                       <div className="text-[11px]" style={{ color: 'var(--text-muted)' }}>Lv{fd.gam?.level || 1} · {fd.gam?.streak || 0}🔥 · {fd.gam?.xp || 0} XP</div>
+                      {listeningStatuses[fid] && (
+                        <div className="text-[10px] mt-0.5 flex items-center gap-1" style={{ color: '#1DB954' }}>
+                          🎵 Listening to <strong>{listeningStatuses[fid].name}</strong> — {listeningStatuses[fid].artist}
+                        </div>
+                      )}
                     </div>
-                    <div className="flex gap-2 items-center">
+                    <div className="flex gap-1.5 items-center">
                       <div className="text-center"><div className="text-base font-extrabold" style={{ color: avg >= 70 ? 'var(--success)' : 'var(--warning)' }}>{avg}%</div><div className="text-[9px]" style={{ color: 'var(--text-muted)' }}>Avg</div></div>
                       <button className="px-2 py-1 rounded text-[10px]" style={{ background: 'rgba(253,203,110,.15)', color: 'var(--warning)' }}
-                        onClick={async () => { const msg = window.prompt('Send encouragement:', 'Keep it up! 💪'); if (msg) { await DB.sendCheer(user!.id, user!.name, fid, msg); toast('Cheer sent!', 'success') } }}>💪</button>
+                        onClick={async () => { const msg = await showPrompt('Send encouragement:', 'Keep it up! 💪', 'Send Cheer'); if (msg) { const mod = moderateText(msg); if (mod.severity === 'severe') { toast('Message contains inappropriate content.', 'error'); return } await DB.sendCheer(user!.id, user!.name, fid, mod.clean ? msg : mod.sanitised); toast(mod.clean ? 'Cheer sent!' : 'Cheer sent (some words filtered).', 'success') } }}>💪</button>
+                      <button className="px-1.5 py-1 rounded text-[10px]" style={{ background: 'rgba(225,112,85,.1)', color: 'var(--danger)' }}
+                        onClick={async () => { const reason = await showPrompt('Report reason:', '', 'Report'); if (reason) { await DB.reportContent({ reporterId: user!.id, reporterName: user!.name, contentType: 'message', contentText: '', targetUserId: fid, reason }); toast('Report submitted', 'success') } }}>🚩</button>
                     </div>
                   </div>
                 </div>
               )
             })}
 
+            {/* Music Shares */}
+            {musicShares.length > 0 && (
+              <>
+                <h3 className="text-sm font-bold mt-5 mb-2">🎶 Shared With You</h3>
+                <div className="space-y-1.5 mb-2">
+                  {musicShares.slice(0, 5).map((s: any) => (
+                    <div key={s.id} className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs" style={cs}>
+                      <span className="text-base">🎵</span>
+                      <div className="flex-1"><strong>{s.fromName}</strong> shared <strong>{s.track?.name}</strong> — {s.track?.artist}</div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+
             {/* Leaderboard */}
             {following.length > 0 && (
               <>
-                <h3 className="text-sm font-bold mt-5 mb-2">🏅 Leaderboard</h3>
+                <div className="flex items-center justify-between mt-5 mb-2">
+                  <h3 className="text-sm font-bold">🏅 Leaderboard</h3>
+                  <button className="text-[10px] px-2 py-0.5 rounded-full" style={{ background: privacySettings.showOnLeaderboard ? 'rgba(0,212,106,.12)' : 'rgba(225,112,85,.1)', color: privacySettings.showOnLeaderboard ? 'var(--success)' : 'var(--danger)' }}
+                    onClick={async () => { const newVal = !privacySettings.showOnLeaderboard; setPrivacySettings((p: any) => ({ ...p, showOnLeaderboard: newVal })); await DB.updatePrivacySettings(user!.id, { ...privacySettings, showOnLeaderboard: newVal }); toast(newVal ? 'Visible on leaderboard' : 'Hidden from leaderboard', 'info') }}>
+                    {privacySettings.showOnLeaderboard ? '👁️ Visible' : '🙈 Hidden'}
+                  </button>
+                </div>
                 <div className="rounded-xl overflow-hidden" style={cs}>
                   {[
-                    { name: user!.name, xp: gamData.xp || 0, level: gamData.level || 1, streak: gamData.streak || 0, isMe: true },
+                    ...(privacySettings.showOnLeaderboard ? [{ name: user!.name, xp: gamData.xp || 0, level: gamData.level || 1, streak: gamData.streak || 0, isMe: true }] : []),
                     ...following.map(fid => { const fd = followingData[fid]; return fd ? { name: fd.name, xp: fd.gam?.xp || 0, level: fd.gam?.level || 1, streak: fd.gam?.streak || 0, isMe: false } : null }).filter(Boolean) as any[]
                   ].sort((a, b) => b.xp - a.xp).map((entry, rank) => (
                     <div key={rank} className="flex items-center gap-2.5 px-3.5 py-2.5 border-b" style={{ borderColor: 'var(--border)', background: entry.isMe ? 'rgba(108,92,231,.04)' : 'transparent' }}>
@@ -483,6 +609,36 @@ export function LearnerDashboard({ onSwitchView, onLogout }: LearnerDashboardPro
                     </div>
                   ))}
                 </div>
+              </>
+            )}
+
+            {/* Group Leaderboards */}
+            {userGroups.length > 0 && (
+              <>
+                <h3 className="text-sm font-bold mt-5 mb-2">📂 Group Leaderboards</h3>
+                <div className="flex gap-1.5 flex-wrap mb-2">
+                  {userGroups.map(g => (
+                    <button key={g.id} className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors"
+                      style={{ background: activeGroupLb === g.id ? 'var(--primary)' : 'var(--bg)', color: activeGroupLb === g.id ? 'white' : 'var(--text-muted)', border: `1px solid ${activeGroupLb === g.id ? 'var(--primary)' : 'var(--border)'}` }}
+                      onClick={() => setActiveGroupLb(activeGroupLb === g.id ? null : g.id)}>
+                      {g.name || g.id}
+                    </button>
+                  ))}
+                </div>
+                {activeGroupLb && groupLeaderboards[activeGroupLb] && (
+                  <div className="rounded-xl overflow-hidden mb-2" style={cs}>
+                    {groupLeaderboards[activeGroupLb].map((entry, rank) => (
+                      <div key={entry.userId} className="flex items-center gap-2.5 px-3.5 py-2.5 border-b" style={{ borderColor: 'var(--border)', background: entry.userId === user?.id ? 'rgba(108,92,231,.04)' : 'transparent' }}>
+                        <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-extrabold" style={{ background: rank < 3 ? 'linear-gradient(135deg, #fdcb6e, #e17055)' : 'var(--bg)', color: rank < 3 ? 'white' : 'var(--text-muted)' }}>
+                          {rank === 0 ? '🥇' : rank === 1 ? '🥈' : rank === 2 ? '🥉' : rank + 1}
+                        </div>
+                        <div className="flex-1"><div className="text-sm font-semibold">{entry.name}{entry.userId === user?.id ? ' (you)' : ''}</div><div className="text-[10px]" style={{ color: 'var(--text-muted)' }}>Lv{entry.level} · {entry.streak}🔥</div></div>
+                        <div className="text-base font-extrabold" style={{ color: 'var(--primary)' }}>{entry.xp} XP</div>
+                      </div>
+                    ))}
+                    {groupLeaderboards[activeGroupLb].length === 0 && <p className="text-sm text-center py-4" style={{ color: 'var(--text-muted)' }}>No members yet</p>}
+                  </div>
+                )}
               </>
             )}
 
@@ -515,7 +671,19 @@ export function LearnerDashboard({ onSwitchView, onLogout }: LearnerDashboardPro
             </div>
 
             {/* Test history */}
-            <h3 className="text-sm font-bold mb-2">📈 Test History</h3>
+            <div className="flex justify-between items-center mb-2">
+              <h3 className="text-sm font-bold">📈 Test History</h3>
+              {getResultsForPkg(activePkg.id).length > 0 && (
+                <PdfExport
+                  results={getResultsForPkg(activePkg.id).map((r: any) => ({
+                    ...r,
+                    score: Math.round((r.correct / r.total) * 100),
+                  }))}
+                  packageName={activePkg.name || 'Course'}
+                  userName={user?.name || 'Learner'}
+                />
+              )}
+            </div>
             {getResultsForPkg(activePkg.id).length > 0 ? getResultsForPkg(activePkg.id).map((r: any, i: number) => (
               <div key={i} className="p-2.5 mb-1 rounded-lg" style={cs}>
                 <div className="flex justify-between items-center">
@@ -541,41 +709,134 @@ export function LearnerDashboard({ onSwitchView, onLogout }: LearnerDashboardPro
         )}
 
         {/* ============ LEARN MODE ============ */}
-        {screen === 'learn' && activePkg && (
+        {screen === 'learn' && activePkg && (() => {
+          // Spaced rep: sort due-for-review cards first when in review mode
+          const activeFacts = spacedRepMode && dueForReview.length > 0
+            ? [...shuffledFacts.filter(f => dueForReview.includes(f.id)), ...shuffledFacts.filter(f => !dueForReview.includes(f.id))]
+            : (shuffledFacts.length > 0 ? shuffledFacts : activePkg.facts)
+          const currentFact = activeFacts[learnIndex]
+          const progress = ((learnIndex + 1) / activeFacts.length) * 100
+
+          const rateConfidence = async (level: number) => {
+            if (user && activePkg) {
+              const fact = activeFacts[learnIndex]
+              await DB.saveFactConfidence(user.id, activePkg.id, fact.id, level)
+            }
+            // Move to next card
+            if (learnIndex < activeFacts.length - 1) {
+              setFlipped(false)
+              setTimeout(() => setLearnIndex(i => i + 1), 100)
+            }
+          }
+
+          return (
           <div className="animate-fade-in text-center py-4">
             {/* Progress */}
             <div className="flex items-center gap-2 mb-2 px-4">
               <div className="flex-1 h-1 rounded-full overflow-hidden" style={{ background: 'var(--border)' }}>
-                <div className="h-full rounded-full" style={{ background: 'linear-gradient(90deg, var(--primary), var(--accent))', width: `${((learnIndex + 1) / activePkg.facts.length) * 100}%` }} />
+                <div className="h-full rounded-full" style={{ background: 'linear-gradient(90deg, var(--primary), var(--accent))', width: `${progress}%` }} />
               </div>
-              <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{learnIndex + 1}/{activePkg.facts.length}</span>
+              <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{learnIndex + 1}/{activeFacts.length}</span>
+              {dueForReview.length > 0 && <span className="text-[10px]" style={{ color: 'var(--warning)', whiteSpace: 'nowrap' }}>{dueForReview.length} due</span>}
             </div>
 
             {/* Mode toggle */}
             <div className="flex gap-1 p-0.5 rounded-full mx-auto w-fit mb-4" style={{ background: 'var(--bg-card)' }}>
               <button className="px-3 py-1 rounded-full text-[11px] font-semibold" style={{ background: learnMode === 'swipe' ? 'var(--primary)' : 'transparent', color: learnMode === 'swipe' ? 'white' : 'var(--text-muted)' }} onClick={() => setLearnMode('swipe')}>🃏 Cards</button>
               <button className="px-3 py-1 rounded-full text-[11px] font-semibold" style={{ background: learnMode === 'scroll' ? 'var(--primary)' : 'transparent', color: learnMode === 'scroll' ? 'white' : 'var(--text-muted)' }} onClick={() => setLearnMode('scroll')}>📜 Scroll</button>
+              <button className="px-3 py-1 rounded-full text-[11px] font-semibold" style={{ background: learnMode === 'tiktok' ? 'var(--primary)' : 'transparent', color: learnMode === 'tiktok' ? 'white' : 'var(--text-muted)' }} onClick={() => setLearnMode('tiktok')}>📱 Feed</button>
+              {dueForReview.length > 0 && (
+                <button className="px-3 py-1 rounded-full text-[10px] font-semibold" style={{ background: spacedRepMode ? 'var(--warning)' : 'transparent', color: spacedRepMode ? 'white' : 'var(--text-muted)' }} onClick={() => setSpacedRepMode(!spacedRepMode)}>🧠 Review</button>
+              )}
             </div>
 
-            {learnMode === 'swipe' ? (
+            {/* Spotify Study Music */}
+            <SpotifyPlayer cardStyle={cs} />
+
+            {/* Podcast Mode (audio learning) */}
+            {activePkg?.facts?.length > 0 && (
+              <PodcastPlayer facts={activePkg.facts} packageName={activePkg.name} packageId={activePkg.id} cardStyle={cs} />
+            )}
+
+            {/* Video content (if course has embedded videos) */}
+            {activePkg && (activePkg.videos || []).length > 0 && (
+              <div className="mb-4">
+                <div className="flex gap-2 overflow-x-auto pb-2">
+                  {(activePkg.videos || []).map((v: any, vi: number) => (
+                    <button key={vi} className="shrink-0 px-3 py-1.5 rounded-lg text-xs whitespace-nowrap" style={cs}
+                      onClick={() => {
+                        const el = document.getElementById('video-embed-player') as HTMLIFrameElement
+                        if (el) el.src = v.embedUrl || v.url
+                      }}>
+                      {v.url?.includes('youtube') || v.url?.includes('youtu.be') ? '📺' : '🎬'} {v.title || `Video ${vi + 1}`}
+                    </button>
+                  ))}
+                </div>
+                <div className="rounded-xl overflow-hidden mt-2" style={{ background: '#000', aspectRatio: '16/9' }}>
+                  <iframe
+                    id="video-embed-player"
+                    src={(activePkg.videos[0] as any).embedUrl || (activePkg.videos[0] as any).url}
+                    className="w-full h-full"
+                    style={{ border: 'none', aspectRatio: '16/9' }}
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                    allowFullScreen
+                  />
+                </div>
+              </div>
+            )}
+
+            {learnMode === 'swipe' && currentFact ? (
               <>
                 <div className="max-w-md mx-auto p-6 rounded-xl min-h-[200px] flex flex-col items-center justify-center cursor-pointer" style={cs} onClick={() => setFlipped(!flipped)}>
                   {!flipped ? (
-                    <><div className="text-[10px] uppercase tracking-wider font-semibold mb-2" style={{ color: 'var(--primary)' }}>{activePkg.facts[learnIndex]?.category}</div><div className="text-4xl mb-3">{getEmoji(learnIndex)}</div><div className="text-lg font-semibold leading-relaxed">{activePkg.facts[learnIndex]?.text}</div><div className="text-[11px] mt-4" style={{ color: 'var(--text-muted)' }}>👆 Tap for details</div></>
+                    <><div className="text-[10px] uppercase tracking-wider font-semibold mb-2" style={{ color: 'var(--primary)' }}>{currentFact.category}</div><div className="text-4xl mb-3">{getEmoji(learnIndex)}</div><div className="text-lg font-semibold leading-relaxed">{currentFact.text}</div><div className="text-[11px] mt-4" style={{ color: 'var(--text-muted)' }}>👆 Tap for details</div></>
                   ) : (
-                    <><div className="text-[10px] uppercase tracking-wider font-semibold mb-2" style={{ color: 'var(--accent)' }}>💡 Details</div><div className="text-base leading-relaxed">{activePkg.facts[learnIndex]?.text}</div>{activePkg.facts[learnIndex]?.detail && <div className="text-sm mt-2" style={{ color: 'var(--text-secondary)' }}>{activePkg.facts[learnIndex].detail}</div>}</>
+                    <><div className="text-[10px] uppercase tracking-wider font-semibold mb-2" style={{ color: 'var(--accent)' }}>💡 Details</div><div className="text-base leading-relaxed">{currentFact.text}</div>{currentFact.detail && <div className="text-sm mt-2" style={{ color: 'var(--text-secondary)' }}>{currentFact.detail}</div>}</>
                   )}
                 </div>
+
+                {/* Spaced rep confidence rating (shown when flipped) */}
+                {flipped && user && activePkg && (
+                  <div className="flex justify-center gap-2 mt-3 px-4">
+                    <button className="flex-1 py-2 rounded-lg text-xs font-semibold" style={{ background: 'rgba(225,112,85,.15)', color: 'var(--danger)', border: '1px solid var(--danger)' }} onClick={() => rateConfidence(0)}>😕 Forgot</button>
+                    <button className="flex-1 py-2 rounded-lg text-xs font-semibold" style={{ background: 'rgba(253,203,110,.15)', color: 'var(--warning)', border: '1px solid var(--warning)' }} onClick={() => rateConfidence(0.5)}>🤔 Partly</button>
+                    <button className="flex-1 py-2 rounded-lg text-xs font-semibold" style={{ background: 'rgba(0,184,148,.15)', color: 'var(--success)', border: '1px solid var(--success)' }} onClick={() => rateConfidence(1)}>😊 Knew it</button>
+                  </div>
+                )}
+
                 <div className="flex justify-center gap-3 mt-4">
                   <button className="w-12 h-12 rounded-full flex items-center justify-center text-xl" style={cs} onClick={() => { if (learnIndex > 0) { setLearnIndex(i => i - 1); setFlipped(false) } }} disabled={learnIndex === 0}>◀</button>
                   <button className="w-12 h-12 rounded-full flex items-center justify-center text-xl text-white" style={{ background: 'var(--primary)', borderRadius: '50%' }} onClick={() => setFlipped(!flipped)}>🔄</button>
-                  <button className="w-12 h-12 rounded-full flex items-center justify-center text-xl" style={cs} onClick={() => { if (learnIndex < activePkg.facts.length - 1) { setLearnIndex(i => i + 1); setFlipped(false) } }}>▶</button>
+                  <button className="w-12 h-12 rounded-full flex items-center justify-center text-xl" style={cs} onClick={() => { if (learnIndex < activeFacts.length - 1) { setLearnIndex(i => i + 1); setFlipped(false) } }}>▶</button>
+                </div>
+
+                {/* Voice commands for hands-free learning */}
+                <div className="mt-3 text-center">
+                  <VoiceInput
+                    placeholder="Say: next, back, flip"
+                    onTranscript={(text) => {
+                      const lower = text.toLowerCase().trim()
+                      if (lower.includes('next') || lower.includes('forward')) {
+                        if (learnIndex < activeFacts.length - 1) { setLearnIndex(i => i + 1); setFlipped(false) }
+                      } else if (lower.includes('back') || lower.includes('previous')) {
+                        if (learnIndex > 0) { setLearnIndex(i => i - 1); setFlipped(false) }
+                      } else if (lower.includes('flip') || lower.includes('details') || lower.includes('show')) {
+                        setFlipped(!flipped)
+                      } else if (lower.includes('forgot') || lower.includes("don't know")) {
+                        rateConfidence(0)
+                      } else if (lower.includes('partly') || lower.includes('kind of') || lower.includes('sort of')) {
+                        rateConfidence(0.5)
+                      } else if (lower.includes('knew it') || lower.includes('know') || lower.includes('easy')) {
+                        rateConfidence(1)
+                      }
+                    }}
+                  />
                 </div>
               </>
-            ) : (
+            ) : learnMode === 'scroll' ? (
               /* Scroll mode */
               <div className="text-left space-y-4 pb-8">
-                {activePkg.facts.map((fact: any, i: number) => (
+                {activeFacts.map((fact: any, i: number) => (
                   <div key={fact.id || i} className="p-5 rounded-xl" style={cs}>
                     <div className="text-4xl font-black mb-2" style={{ background: 'linear-gradient(135deg, var(--primary), var(--accent))', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>{i + 1}</div>
                     <div className="text-[10px] uppercase tracking-wider font-semibold mb-2" style={{ color: 'var(--primary)' }}>{fact.category}</div>
@@ -584,9 +845,30 @@ export function LearnerDashboard({ onSwitchView, onLogout }: LearnerDashboardPro
                   </div>
                 ))}
               </div>
-            )}
+            ) : learnMode === 'tiktok' ? (
+              /* TikTok-style full-screen scroll */
+              <div className="scroll-snap-container -mx-4 -mt-4">
+                {activeFacts.map((fact: any, i: number) => (
+                  <div key={fact.id || i} className="scroll-snap-item px-6">
+                    <div className="w-full max-w-md text-center">
+                      <div className="text-5xl mb-4 animate-float">{getEmoji(i)}</div>
+                      <div className="text-[10px] uppercase tracking-wider font-bold mb-3" style={{ color: 'var(--primary)' }}>{fact.category}</div>
+                      <div className="text-xl font-bold leading-relaxed mb-4">{fact.text}</div>
+                      {fact.detail && <div className="text-sm px-4" style={{ color: 'var(--text-secondary)' }}>{fact.detail}</div>}
+                      <div className="mt-6 flex justify-center gap-2">
+                        <button className="px-3 py-1.5 rounded-lg text-xs" style={{ background: 'rgba(225,112,85,.12)', color: 'var(--danger)', border: '1px solid rgba(225,112,85,.3)' }} onClick={() => rateConfidence(0)}>😕</button>
+                        <button className="px-3 py-1.5 rounded-lg text-xs" style={{ background: 'rgba(253,203,110,.12)', color: 'var(--warning)', border: '1px solid rgba(253,203,110,.3)' }} onClick={() => rateConfidence(0.5)}>🤔</button>
+                        <button className="px-3 py-1.5 rounded-lg text-xs" style={{ background: 'rgba(0,184,148,.12)', color: 'var(--success)', border: '1px solid rgba(0,184,148,.3)' }} onClick={() => rateConfidence(1)}>😊</button>
+                      </div>
+                      <div className="text-[10px] mt-4" style={{ color: 'var(--text-muted)' }}>{i + 1}/{activeFacts.length} · Swipe up for next</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </div>
-        )}
+          )
+        })()}
 
         {/* ============ TEST SETUP ============ */}
         {screen === 'test-setup' && activePkg && (
@@ -604,6 +886,21 @@ export function LearnerDashboard({ onSwitchView, onLogout }: LearnerDashboardPro
                       onClick={() => setTestScope(s.id as any)}>
                       <div className="text-xl mb-1">{s.icon}</div><div className="text-sm font-bold">{s.name}</div><div className="text-[10px]" style={{ color: 'var(--text-muted)' }}>{s.desc}</div>
                     </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Category filter */}
+            {(activePkg.categories || []).length > 1 && (
+              <div className="mb-4">
+                <h3 className="text-sm font-semibold mb-2 text-left">Category</h3>
+                <div className="flex gap-1.5 flex-wrap">
+                  <button className="px-3 py-1.5 rounded-lg text-xs font-semibold" style={{ background: testCategoryFilter === 'all' ? 'var(--primary)' : 'var(--bg-card)', color: testCategoryFilter === 'all' ? 'white' : 'var(--text-secondary)', border: `1px solid ${testCategoryFilter === 'all' ? 'var(--primary)' : 'var(--border)'}` }}
+                    onClick={() => setTestCategoryFilter('all')}>All Topics</button>
+                  {(activePkg.categories || []).map((cat: string) => (
+                    <button key={cat} className="px-3 py-1.5 rounded-lg text-xs font-semibold" style={{ background: testCategoryFilter === cat ? 'var(--primary)' : 'var(--bg-card)', color: testCategoryFilter === cat ? 'white' : 'var(--text-secondary)', border: `1px solid ${testCategoryFilter === cat ? 'var(--primary)' : 'var(--border)'}` }}
+                      onClick={() => setTestCategoryFilter(cat)}>{cat}</button>
                   ))}
                 </div>
               </div>
@@ -640,7 +937,47 @@ export function LearnerDashboard({ onSwitchView, onLogout }: LearnerDashboardPro
             }}>
               {testQuestions[currentQ]?.type === 'mcq' ? '🔘 Pick One' : testQuestions[currentQ]?.type === 'truefalse' ? '✅ True or False' : '☑️ Select All'}
             </span>
-            <div className="text-lg font-bold leading-relaxed mb-5">{testQuestions[currentQ]?.question}</div>
+            <div className="text-lg font-bold leading-relaxed mb-3">{testQuestions[currentQ]?.question}</div>
+
+            {/* Voice input for answering */}
+            {!submitted && (
+              <div className="mb-3 text-center">
+                <VoiceInput
+                  placeholder={
+                    testQuestions[currentQ]?.type === 'truefalse' ? 'Say True or False'
+                    : testQuestions[currentQ]?.type === 'mcq' ? 'Say A, B, C, or D'
+                    : 'Say option letters'
+                  }
+                  onTranscript={(text) => {
+                    const lower = text.toLowerCase().trim()
+                    const qType = testQuestions[currentQ]?.type
+                    if (qType === 'truefalse') {
+                      if (lower.includes('true')) setAnswer(true)
+                      else if (lower.includes('false')) setAnswer(false)
+                    } else if (qType === 'mcq') {
+                      // Match "A", "B", "C", "D" or "first", "second", etc.
+                      const letterMap: Record<string, number> = { a: 0, b: 1, c: 2, d: 3, first: 0, second: 1, third: 2, fourth: 3, one: 0, two: 1, three: 2, four: 3 }
+                      for (const [word, idx] of Object.entries(letterMap)) {
+                        if (lower.includes(word) && idx < (testQuestions[currentQ]?.options?.length || 0)) {
+                          setAnswer(idx)
+                          break
+                        }
+                      }
+                    } else if (qType === 'selectall') {
+                      // Parse multiple letters: "A and C", "A, B, D", etc.
+                      const letterMap: Record<string, number> = { a: 0, b: 1, c: 2, d: 3 }
+                      const selected: number[] = []
+                      for (const [letter, idx] of Object.entries(letterMap)) {
+                        if (lower.includes(letter) && idx < (testQuestions[currentQ]?.options?.length || 0)) {
+                          selected.push(idx)
+                        }
+                      }
+                      if (selected.length > 0) setAnswer(selected)
+                    }
+                  }}
+                />
+              </div>
+            )}
 
             {/* MCQ + Select All */}
             {(testQuestions[currentQ]?.type === 'mcq' || testQuestions[currentQ]?.type === 'selectall') && (
@@ -734,6 +1071,30 @@ export function LearnerDashboard({ onSwitchView, onLogout }: LearnerDashboardPro
           </div>
         )}
       </div>
+
+      {/* Study Buddy floating button */}
+      {!showStudyBuddy && (
+        <button
+          className="fixed bottom-6 right-6 w-14 h-14 rounded-full flex items-center justify-center text-2xl shadow-lg z-50 transition-transform hover:scale-110"
+          style={{ background: 'linear-gradient(135deg, var(--primary), var(--accent))', color: 'white', boxShadow: '0 4px 20px rgba(108,92,231,.4)' }}
+          onClick={() => setShowStudyBuddy(true)}
+          title="Open Study Buddy"
+        >
+          🤖
+        </button>
+      )}
+
+      {/* Study Buddy overlay */}
+      {showStudyBuddy && (
+        <StudyBuddy
+          subject={activePkg?.subject}
+          yearLevel={activePkg?.yearLevel || user?.yearLevel}
+          facts={activePkg?.facts}
+          packageName={activePkg?.name}
+          personality={studyBuddyPersonality}
+          onClose={() => setShowStudyBuddy(false)}
+        />
+      )}
     </div>
   )
 }

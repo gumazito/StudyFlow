@@ -1,20 +1,78 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useAuth } from '@/lib/contexts/AuthContext'
-import { useTheme } from '@/lib/contexts/ThemeContext'
+import { useTheme, useToast } from '@/lib/contexts/ThemeContext'
 import { AdminDashboard } from '@/components/admin/AdminDashboard'
 import { ProfileScreen } from '@/components/profile/ProfileScreen'
 import { MentorDashboard } from '@/components/mentor/MentorDashboard'
 import { GroupsView } from '@/components/groups/GroupsView'
 import { PublisherDashboard } from '@/components/publisher/PublisherDashboard'
 import { LearnerDashboard } from '@/components/learner/LearnerDashboard'
+import * as DB from '@/lib/db'
+import { genId } from '@/lib/constants'
+
+function createPersonalGroup(userId: string, userName: string) {
+  return {
+    id: `personal_${userId}`, name: `${userName}'s Space`, type: 'personal',
+    official: false, createdBy: userId, createdAt: Date.now(),
+    members: [{ userId, email: '', name: userName, roles: ['admin', 'publisher', 'learner', 'mentor'], joinedAt: Date.now() }],
+    inviteCode: genId(), description: 'Your personal study space',
+  }
+}
 
 export function RolePicker() {
   const { user, logout } = useAuth()
   const { dark, toggle } = useTheme()
+  const { toast } = useToast()
   const [activeView, setActiveView] = useState<string | null>(null)
   const [myGroups, setMyGroups] = useState<any[]>([])
   const [activeGroup, setActiveGroup] = useState<string | null>(null)
+  const [groupsLoaded, setGroupsLoaded] = useState(false)
+
+  // Load user groups + personal group auto-creation + auto-join from URL
+  useEffect(() => {
+    if (!user || groupsLoaded) return
+    const loadGroups = async () => {
+      try {
+        const groups = await DB.getGroupsForUser(user.id) as any[]
+        if (groups.length === 0) {
+          // Create personal group if none exist
+          const pg = createPersonalGroup(user.id, user.name)
+          await DB.createGroup(pg)
+          setMyGroups([pg])
+          setActiveGroup(pg.id)
+        } else {
+          setMyGroups(groups)
+          setActiveGroup(groups[0].id)
+        }
+
+        // Handle invite link — auto-join group
+        if (typeof window !== 'undefined') {
+          const params = new URLSearchParams(window.location.search)
+          const inviteGroupId = params.get('invite')
+          const inviteRoles = (params.get('roles') || 'learner').split(',')
+          if (inviteGroupId) {
+            const existing = groups.find(g => g.id === inviteGroupId)
+            if (!existing) {
+              await DB.addGroupMember(inviteGroupId, { userId: user.id, email: user.email, name: user.name, roles: inviteRoles, joinedAt: Date.now() })
+              const joinedGroup = await DB.getGroup(inviteGroupId)
+              if (joinedGroup) {
+                setMyGroups(prev => [...prev, joinedGroup])
+                setActiveGroup((joinedGroup as any).id)
+                toast(`Joined group: ${(joinedGroup as any).name || 'group'}`, 'success')
+              }
+            }
+            // Clean URL params
+            window.history.replaceState({}, '', window.location.pathname)
+          }
+        }
+      } catch (e) {
+        console.error('Error loading groups:', e)
+      }
+      setGroupsLoaded(true)
+    }
+    loadGroups()
+  }, [user, groupsLoaded])
 
   if (!user) return null
 
@@ -78,7 +136,26 @@ export function RolePicker() {
           )}
         </div>
 
-        <div className="mt-6 pt-4 border-t flex gap-2 justify-center" style={{ borderColor: 'var(--border)' }}>
+        {/* Active Group Indicator */}
+        {myGroups.length > 0 && activeGroup && (
+          <div className="mt-5 px-4 py-2.5 rounded-xl text-xs" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+            <div className="flex items-center justify-between">
+              <span style={{ color: 'var(--text-muted)' }}>Active group:</span>
+              <select
+                className="text-xs font-semibold px-2 py-1 rounded"
+                style={{ background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text)' }}
+                value={activeGroup}
+                onChange={e => { setActiveGroup(e.target.value); toast(`Switched to ${myGroups.find(g => g.id === e.target.value)?.name || 'group'}`, 'success') }}
+              >
+                {myGroups.map(g => (
+                  <option key={g.id} value={g.id}>{g.name}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+        )}
+
+        <div className="mt-4 pt-4 border-t flex gap-2 justify-center" style={{ borderColor: 'var(--border)' }}>
           <button className="px-4 py-2 rounded-lg text-xs" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--text-secondary)' }} onClick={() => setActiveView('profile')}>
             \u2699\uFE0F Profile
           </button>

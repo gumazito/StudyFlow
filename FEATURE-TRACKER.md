@@ -162,9 +162,9 @@
 - ✅ Default personal group auto-created for every user
 - ✅ Super user (courtenay@hollis.family) has access to all groups
 - ✅ ACARA school name lookup (MySchool API integration)
-- 📋 ABN company lookup (requires backend proxy — ABR API needs registered GUID key)
+- ✅ ABN company lookup (Cloud Function proxy to ABR API)
 - ✅ Group join requests: approval/rejection UI in group admin view
-- 📋 Migrate existing content into default test group (data migration script)
+- ✅ Migrate existing content into default test group (scripts/migrate-to-groups.ts)
 
 ### Official Group Verification Workflow
 - ✅ When creating an "Official" school/company group, require verification submission
@@ -175,7 +175,7 @@
 - ✅ Group shows verification status: pending/approved/rejected with ability to resubmit
 - ✅ Official badge displayed on group card
 - ✅ Community groups do NOT need verification
-- 📋 PDF upload of letterhead (requires Firebase Storage — workaround: email to admin)
+- ✅ PDF upload of letterhead via Firebase Storage (FileUpload component wired into VerificationForm)
 
 ### Cross-Group Content
 - ✅ Cross-publish DB helpers (link mode + copy mode)
@@ -184,7 +184,7 @@
 - ✅ Group filter in learner course browse view (chip filter per group)
 - ✅ Course card shows which group it belongs to (📂 badge)
 - ✅ New packages automatically tagged with active group context
-- 📋 Linked courses: propagation of updates (requires backend sync)
+- ✅ Linked courses: propagation of updates (Sync Now button in PackageEditor + DB propagation)
 
 ### Account Management
 - ✅ Delete profile / right to be forgotten (deletes all user data from Firestore + Auth)
@@ -192,116 +192,219 @@
 
 ---
 
-## Phase 5: Media, Music & Social Audio (POST-REBUILD) 📋 REQUIRES BACKEND
+## Phase 5: Media, Music & Social Audio — ✅ DONE
 
-### Spotify Music Integration
-- 📋 Embedded Spotify player (free radio / Web Playback SDK)
-- 📋 Search for songs, artists, or playlists within the app
-- 📋 "Currently listening" status visible to followers on Social tab
-- 📋 Hi-5 / cheer for what someone is listening to
-- 📋 Social music sharing (share a song/playlist with followers)
-- 📋 Study music playlists (curated or AI-suggested based on subject)
-- 📋 Requires: Spotify Developer App registration + OAuth backend proxy
+### Spotify Music Integration — ✅ DONE
+- ✅ Embedded Spotify player (iframe embed with free radio mode)
+- ✅ Search for songs, artists, or playlists within the app (requires connected account)
+- ✅ Study music presets (Lo-Fi Study Beats, Deep Focus, Peaceful Piano, Nature Sounds, Classical Focus)
+- ✅ Spotify OAuth via Cloud Function (token exchange + refresh)
+- ✅ Connection status indicator in player
+- ✅ "Currently listening" status visible to followers (real-time Firestore broadcasting, 5-min expiry)
+- ✅ Hi-5 / cheer for what someone is listening to (integrated into follower cards)
+- ✅ Social music sharing (share a song/playlist with followers, "🎶 Shared With You" section)
 
-### Audio Learning (Podcast-Style)
-- 📋 AI text-to-speech: convert course facts into short audio learning tracks
-- 📋 "Podcast mode" — auto-generate hip, engaging audio summaries for young learners
-- 📋 Audio player UI integrated into learn mode (play/pause/skip)
-- 📋 Background playback support (keep learning while browsing)
-- 📋 Requires: TTS API (e.g. ElevenLabs, Google TTS, or OpenAI TTS)
+### Audio Learning (Podcast-Style) — ✅ DONE
+- ✅ AI text-to-speech: convert course facts into audio via Cloud Function (OpenAI TTS / ElevenLabs)
+- ✅ "Podcast mode" — sequential audio playback of course facts in learn mode
+- ✅ Audio player UI with play/pause/skip controls + progress bar
+- ✅ Voice selector (Nova, Alloy, Echo, Shimmer)
+- ✅ Auto-play next fact when current finishes
+- ✅ Audio caching to Firebase Storage for repeat plays
+- ✅ Background playback support (audio service worker + MediaSession API for lock-screen controls)
 
-### Video Content
-- 📋 Publishers can upload or embed video content (YouTube, Vimeo, or direct upload)
-- 📋 Video player in learn mode alongside flash cards
-- 📋 Requires: Firebase Storage for direct uploads, or embed URLs for YouTube/Vimeo
+### Video Content — ✅ DONE
+- ✅ Publishers can embed video content (YouTube, Vimeo) in course editor
+- ✅ Video player in learn mode alongside flash cards (switchable between videos)
+- ✅ Direct video upload via Firebase Storage (MP4/MOV/WebM, up to 100MB, in PackageEditor)
 
-### Voice-Based Learning
-- 📋 Voice input for answering test questions (speech-to-text)
-- 📋 "Study buddy" — conversational AI tutor that explains concepts verbally
-- 📋 Requires: Web Speech API (browser-native) + AI API for conversation
+### Voice-Based Learning — ✅ DONE (Phase 1)
+- ✅ Voice input for answering True/False test questions (Web Speech API, browser-native)
+- ✅ Visual listening indicator with interim transcript
+- ✅ Graceful fallback for unsupported browsers
+- ✅ "Study buddy" — conversational AI tutor with personality styles (encouraging/strict/humorous)
 
-### AI-Powered Study Plan Generator
-- 📋 Analyse learner's test results, weak areas, and progress
-- 📋 Generate a personalised daily/weekly study plan
-- 📋 Prioritise topics where scores are lowest
-- 📋 Adjust plan dynamically as learner improves
-- 📋 Requires: AI API (Claude/ChatGPT) + learner history data
+### AI-Powered Study Plan Generator — ✅ DONE
+- ✅ Analyse learner's test results, weak areas, and progress
+- ✅ Generate a personalised 7-day study plan via AI
+- ✅ Prioritise topics where scores are lowest
+- ✅ Dynamically generates new plans on demand
+- ✅ Uses multi-provider fallback (Claude → ChatGPT → Gemini → Grok)
 
----
-
-## Phase 6: Multi-AI Provider System (POST-REBUILD) 📋 REQUIRES BACKEND
-
-### Provider Support
-- 📋 Claude (Anthropic) — API key setup with link to console.anthropic.com
-- 📋 ChatGPT (OpenAI) — API key setup with link to platform.openai.com
-- 📋 Gemini (Google) — API key setup with link to aistudio.google.com
-- 📋 Grok (xAI) — API key setup with link to console.x.ai
-
-### Key Management
-- 📋 Guided setup wizard: "Which AI would you like to use?" → step-by-step key creation
-- 📋 If user has existing account: direct to API key page
-- 📋 If new user: guide through free account creation → then API key
-- 📋 OAuth login linking where providers support it (Google/OpenAI)
-- 📋 Multi-key management in user Profile → AI Settings section
-- 📋 Visual status per provider: ✅ Connected / ❌ Not set up / ⚠️ Low credits
-
-### Automatic Fallback & Rotation
-- 📋 Priority order set by user (e.g. Claude first, then ChatGPT, then Gemini)
-- 📋 If primary provider returns rate limit or credit error, automatically try next
-- 📋 Credit balance monitoring (where API supports it)
-- 📋 Alert notification: "Your Claude credits are running low — add more or set up a backup provider"
-- 📋 Requires: Backend service to proxy API calls and manage rotation logic
+### Streak Freeze — ✅ DONE
+- ✅ Earn streak freeze tokens (1 per 7-day streak milestone, max 3)
+- ✅ Auto-uses freeze if learner misses exactly one day
+- ✅ Freeze count shown in gamification bar (🧊 indicator)
 
 ---
 
-## Architecture Rebuild Plan (NEXT MAJOR SESSION)
+## Phase 6: Multi-AI Provider System — ✅ DONE (client-side)
 
-### Why Rebuild?
-The single HTML file has served its purpose as a rapid prototype, but at 4700+ lines it's reached the limit of what's maintainable. The following features CANNOT be built in a static HTML file and require a proper backend:
-- Spotify OAuth (requires server-side token exchange)
-- ABN/ACARA API proxy (APIs require server-side keys)
-- File uploads for verification docs and video/audio content (Firebase Storage)
-- Text-to-speech generation (TTS APIs)
-- AI provider rotation with credit monitoring (server-side logic)
-- Real-time notifications (Firestore listeners need proper setup)
-- Proper error handling, loading states, and offline support
+### Provider Support — ✅ DONE
+- ✅ Claude (Anthropic) — API key setup with link to console.anthropic.com
+- ✅ ChatGPT (OpenAI) — API key setup with link to platform.openai.com
+- ✅ Gemini (Google) — API key setup with link to aistudio.google.com
+- ✅ Grok (xAI) — API key setup with link to console.x.ai
 
-### Current Architecture: Single HTML file (4700+ lines)
-### Target Architecture: Next.js + Firebase
+### Key Management — ✅ DONE
+- ✅ Guided setup wizard per provider (step-by-step with direct links)
+- ✅ If user has existing account: direct to API key page
+- ✅ Multi-key management in Profile → AI Provider Settings section
+- ✅ Visual status per provider: ✅ Connected / Not set up
+- ✅ Social login (Google/Apple/Microsoft) via Firebase Auth with signInWithPopup
 
-**Frontend (Next.js React)**
-- 30-40 component files, properly organised
-- Pages: auth, role-picker, admin, publisher, learner, mentor, groups, profile, social
-- Shared components: nav, toast, modal, cards, filters, search
-- Context providers: auth, theme, groups, gamification
-- Proper routing with Next.js App Router
+### Automatic Fallback & Rotation — ✅ DONE
+- ✅ Priority order set by user (drag up/down) — persisted to Firestore
+- ✅ If primary provider returns error, automatically tries next in priority
+- ✅ Content engine (auto-research) uses multi-provider fallback
+- ✅ Study plan generator uses multi-provider fallback
+- 💡 Credit balance monitoring (requires provider-specific APIs — future enhancement)
 
-**Backend (Next.js API Routes or Firebase Cloud Functions)**
-- Spotify OAuth proxy + player state management
-- ABN lookup via ABR API (registered GUID)
-- ACARA school lookup proxy
-- Text-to-speech generation endpoint
-- AI provider management: key validation, rotation, credit checks
-- File upload handling (Firebase Storage)
-- Email notifications (Firebase Extensions or SendGrid)
-
-**Database (Firestore — properly indexed)**
-- Collections: users, groups, packages, test_results, learner_progress, gamification, feedback, ratings, follow_requests, mentor_requests, cheers, announcements, ai_config, spaced_rep, cross_publish, group_requests, verification_requests
-- Composite indexes for all query patterns
-- Security rules scoped to groups
-
-**Infrastructure**
-- Firebase Hosting (replaces GitHub Pages — private repo)
-- Firebase Storage (for file uploads: verification docs, video, audio)
-- GitHub Actions CI/CD (auto-deploy on push to main)
-- Staging branch → staging Firebase project
-- Playwright end-to-end tests
-- Proper environment variables (no API keys in source)
+### Firebase Storage — ✅ DONE
+- ✅ FileUpload component for verification documents (PDF, images, DOCX)
+- ✅ Integrated into group verification form (replaces placeholder)
 
 ---
 
-*Last updated: March 19, 2026*
-*Current status: Phases 1-4 complete in single HTML file. Next step: architecture rebuild, then Phase 5-6.*
+## Phase 7: Backend Services (Cloud Functions) — ✅ DONE
+
+### Firebase Cloud Functions Infrastructure — ✅ DONE
+- ✅ Functions project setup (TypeScript, Node 18)
+- ✅ All functions authenticated via Firebase Auth ID tokens
+- ✅ CORS enabled for cross-origin requests from static frontend
+- ✅ Environment config via `firebase functions:config:set`
+
+### ABN Company Lookup — ✅ DONE
+- ✅ Cloud Function proxy to ABR (Australian Business Register) API
+- ✅ ABN validation (11-digit format check)
+- ✅ Entity name, type, status, state, postcode extraction from XML response
+- ✅ AbnLookup UI component with auto-format + inline lookup button
+- ✅ Integrated into group verification form (replaces plain text input)
+
+### Email Notifications (SendGrid) — ✅ DONE
+- ✅ Cloud Function for sending email via SendGrid API
+- ✅ HTML template support + dynamic template data
+- ✅ Admin-only access control
+- ✅ Notification logging to Firestore
+- ✅ Auto-email on new course announcements (Firestore trigger)
+- ✅ Admin notification sender UI (email tab)
+
+### SMS Notifications (Twilio) — ✅ DONE
+- ✅ Cloud Function for sending SMS via Twilio API
+- ✅ Admin-only access control
+- ✅ Notification logging with Twilio SID
+- ✅ Admin notification sender UI (SMS tab)
+
+### Payment Processing (Stripe) — ✅ DONE
+- ✅ Stripe Checkout session creation (monthly + yearly plans)
+- ✅ Stripe webhook handler (checkout.session.completed, subscription.updated/deleted, invoice.payment_failed)
+- ✅ Subscription status tracking in Firestore (active/past_due/cancelled)
+- ✅ Auto-create Stripe customer on first checkout
+- ✅ SubscriptionPanel UI in Profile screen (pricing cards, status indicator)
+- ✅ getSubscriptionStatus endpoint
+
+### Push Notifications (FCM) — ✅ DONE
+- ✅ Firebase Cloud Messaging service worker (background + foreground)
+- ✅ FCM token registration Cloud Function
+- ✅ Send push to specific user or all users
+- ✅ Auto-push to mentors when mentee completes a test (Firestore trigger)
+- ✅ Invalid token cleanup (auto-removes expired FCM tokens)
+- ✅ Admin notification sender UI (push tab)
+- ✅ Push notification initialization in app providers
+- ✅ Foreground message handling (browser notification)
+
+---
+
+## Architecture Rebuild — ✅ COMPLETE (Next.js)
+
+### Rebuild Status
+The architecture rebuild from single HTML to Next.js is **complete**. All 40+ features from Phases 1-4 have been migrated.
+
+### Current Architecture: Next.js 14 + Firebase + Cloud Functions
+
+**Frontend (Next.js React) — 25 component files**
+- `app/` — layout.tsx, page.tsx, providers.tsx, globals.css
+- `components/auth/` — AuthScreen.tsx
+- `components/admin/` — AdminDashboard.tsx, NotificationSender.tsx
+- `components/publisher/` — PublisherDashboard.tsx, PackageEditor.tsx, CrossPublishPanel.tsx, PdfExport.tsx
+- `components/learner/` — LearnerDashboard.tsx, StudyPlanPanel.tsx, VoiceInput.tsx, SpotifyPlayer.tsx, PodcastPlayer.tsx
+- `components/mentor/` — MentorDashboard.tsx
+- `components/groups/` — GroupsView.tsx, VerificationForm.tsx, JoinRequestsPanel.tsx, FileUpload.tsx, AbnLookup.tsx
+- `components/profile/` — ProfileScreen.tsx, AiProviderSettings.tsx, SubscriptionPanel.tsx
+- `components/layout/` — RolePicker.tsx
+- `lib/contexts/` — AuthContext.tsx, ThemeContext.tsx (Toast, Modal, Processing)
+- `lib/` — firebase.ts, db.ts, constants.ts, question-generator.ts, ai-providers.ts, content-engine.ts, cloud-functions.ts, push-notifications.ts
+
+**Backend (Firebase Cloud Functions) — 6 function modules**
+- `functions/src/index.ts` — Entry point, re-exports all functions
+- `functions/src/abn-lookup.ts` — ABR API proxy for ABN validation
+- `functions/src/spotify.ts` — Spotify OAuth flow (auth, callback, refresh)
+- `functions/src/tts.ts` — Text-to-speech (OpenAI TTS / ElevenLabs)
+- `functions/src/notifications.ts` — Email (SendGrid) + SMS (Twilio) + auto-notifications
+- `functions/src/stripe.ts` — Stripe Checkout, webhooks, subscription status
+- `functions/src/push.ts` — FCM push notifications + auto-push triggers
+
+**Database (Firestore — indexed)**
+- 16 collections with composite indexes (firestore.indexes.json)
+- Security rules per collection (firestore.rules)
+
+**Infrastructure — Ready for deploy**
+- ✅ Firebase Hosting config (production + staging targets)
+- ✅ GitHub Actions CI/CD (lint → type-check → build → deploy)
+- ✅ Playwright test suite (auth + structural tests)
+- ✅ Environment variables via .env.local (no keys in source)
+- ✅ Staging environment (separate Firebase project)
+- ✅ Data migration script (scripts/migrate-to-groups.ts)
+
+---
+
+## Phase 8: Premium, Moderation & Engagement — ✅ DONE
+
+### Feature Gating (Free / Premium Tiers) — ✅ DONE
+- ✅ Free-tier limits: 3 courses, 10 tests/day, no audio/video/spotify/study plans
+- ✅ Premium tier: unlimited everything (active subscription or trialing)
+- ✅ Always-premium accounts bypass all limits (courtenay/savannah/ezrela/ethan @hollis.family)
+- ✅ Admin can grant/revoke premium manually for any user or group
+- ✅ `lib/feature-gating.ts` — centralised tier enforcement
+- ✅ 14-day free trial for first-time subscribers (Stripe Checkout)
+- ✅ Subscription cancellation retention flow (reasons → 50% discount / pause / cancel)
+
+### Content Moderation & Safety — ✅ DONE
+- ✅ Content flagging system (🚩 report button on follower cards)
+- ✅ Content reports admin tab (pending/actioned/dismissed with action buttons)
+- ✅ Auto-suspension after 3+ flags (checkAndSuspendUser)
+- ✅ Client-side profanity filter on cheers and feedback
+- ✅ Terms of Service page (`/terms`)
+- ✅ Privacy Policy page (`/privacy`) — GDPR + Australian Privacy Act compliant
+- ✅ Cookie Policy page (`/cookies`)
+- ✅ Acceptable Use Policy page (`/acceptable-use`)
+
+### Authentication Enhancements — ✅ DONE
+- ✅ "Remember me" toggle (browser local vs session persistence)
+- ✅ Social login: Google, Apple, Microsoft (signInWithPopup)
+- ✅ Invite code entry in onboarding wizard (auto-join group on signup)
+
+### Privacy Controls — ✅ DONE
+- ✅ Privacy settings in Profile: appear in search, show progress, show on leaderboard
+- ✅ Leaderboard opt-in/opt-out toggle (👁️ Visible / 🙈 Hidden)
+
+### Test Enhancements — ✅ DONE
+- ✅ Category filter on test setup (filter by specific topic when course has multiple categories)
+- ✅ Group-specific leaderboards (select group → see ranked members)
+
+### Scheduled Notifications — ✅ DONE
+- ✅ Weekly progress summary email (Monday 7am AEST via SendGrid + pub/sub schedule)
+- ✅ Inactive user reminder (daily 5pm AEST, nudge after 7+ days inactive, one-per-period)
+
+### Remaining Ideas (nice-to-have)
+- 💡 Credit balance monitoring for AI providers (requires provider-specific APIs)
+- 💡 OAuth login linking for AI providers (Google/OpenAI account binding)
+
+---
+
+*Last updated: March 20, 2026*
+*Current status: All phases 1-8 complete. All buildable features implemented.*
 *Super admin: courtenay@hollis.family*
-*Live URL: https://gumazito.github.io/StudyFlow/*
+*Always-premium: courtenay@hollis.family, savannah@hollis.family, ezrela@hollis.family, ethan@hollis.family*
+*Live URL: https://studyflow-f2e7a.web.app (Firebase Hosting)*
 *Repo: https://github.com/gumazito/studyflow*

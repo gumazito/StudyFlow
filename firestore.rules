@@ -1,0 +1,168 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Helper functions ──────────────────────────────────
+    function isAuth() {
+      return request.auth != null;
+    }
+    function isOwner(uid) {
+      return isAuth() && request.auth.uid == uid;
+    }
+    function userData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+    function hasRole(role) {
+      return isAuth() && role in userData().roles;
+    }
+    function isAdmin() {
+      return hasRole('admin');
+    }
+
+    // ── Users ─────────────────────────────────────────────
+    match /users/{userId} {
+      allow read: if isAuth();
+      allow create: if isOwner(userId);
+      allow update: if isOwner(userId) || isAdmin();
+      allow delete: if isOwner(userId) || isAdmin();
+    }
+
+    // ── Packages (Courses) ────────────────────────────────
+    match /packages/{packageId} {
+      allow read: if isAuth();
+      allow create: if isAuth() && (hasRole('author') || hasRole('admin'));
+      allow update: if isAuth() && (
+        resource.data.authorId == request.auth.uid ||
+        isAdmin() ||
+        ('collaborators' in resource.data && request.auth.uid in resource.data.collaborators)
+      );
+      allow delete: if isAuth() && (
+        resource.data.authorId == request.auth.uid || isAdmin()
+      );
+    }
+
+    // ── Test Results ──────────────────────────────────────
+    match /test_results/{resultId} {
+      allow read: if isAuth();
+      allow create: if isAuth();
+      allow update, delete: if isOwner(resource.data.userId) || isAdmin();
+    }
+
+    // ── Learner Progress ──────────────────────────────────
+    match /learner_progress/{progressId} {
+      allow read: if isAuth();
+      allow create, update: if isAuth() && request.resource.data.userId == request.auth.uid;
+      allow delete: if isOwner(resource.data.userId) || isAdmin();
+    }
+
+    // ── Gamification ──────────────────────────────────────
+    match /gamification/{userId} {
+      allow read: if isAuth();
+      allow write: if isOwner(userId);
+    }
+
+    // ── Spaced Repetition ─────────────────────────────────
+    match /spaced_rep/{docId} {
+      allow read: if isAuth();
+      allow write: if isAuth() && request.resource.data.userId == request.auth.uid;
+    }
+
+    // ── Social: Follow Requests ───────────────────────────
+    match /follow_requests/{requestId} {
+      allow read: if isAuth();
+      allow create: if isAuth();
+      allow update: if isAuth() && (
+        resource.data.fromId == request.auth.uid ||
+        resource.data.toId == request.auth.uid
+      );
+    }
+
+    // ── Social: Cheers ────────────────────────────────────
+    match /cheers/{cheerId} {
+      allow read: if isAuth();
+      allow create: if isAuth();
+      allow update: if isAuth() && resource.data.toId == request.auth.uid;
+    }
+
+    // ── Mentor Requests ───────────────────────────────────
+    match /mentor_requests/{requestId} {
+      allow read: if isAuth();
+      allow create: if isAuth();
+      allow update: if isAuth() && (
+        resource.data.mentorId == request.auth.uid ||
+        resource.data.learnerId == request.auth.uid
+      );
+    }
+
+    // ── Groups ────────────────────────────────────────────
+    match /groups/{groupId} {
+      allow read: if isAuth();
+      allow create: if isAuth();
+      allow update: if isAuth(); // Group-level admin check in application logic
+      allow delete: if isAdmin();
+    }
+
+    // ── Group Join Requests ───────────────────────────────
+    match /group_requests/{requestId} {
+      allow read: if isAuth();
+      allow create: if isAuth();
+      allow update: if isAuth();
+    }
+
+    // ── Feedback ──────────────────────────────────────────
+    match /feedback/{feedbackId} {
+      allow read: if isAuth();
+      allow create: if isAuth();
+      allow update: if isAdmin();
+    }
+
+    // ── Ratings ───────────────────────────────────────────
+    match /ratings/{ratingId} {
+      allow read: if isAuth();
+      allow write: if isAuth();
+    }
+
+    // ── AI Config ─────────────────────────────────────────
+    match /ai_config/{userId} {
+      allow read, write: if isOwner(userId);
+    }
+
+    // ── Admin Notifications ───────────────────────────────
+    match /admin_notifications/{notifId} {
+      allow read: if isAdmin();
+      allow create: if isAuth();
+      allow update: if isAdmin();
+    }
+
+    // ── Announcements ─────────────────────────────────────
+    match /announcements/{announcementId} {
+      allow read: if isAuth();
+      allow create: if isAuth() && (hasRole('author') || isAdmin());
+      allow update: if isAuth(); // For marking as read
+    }
+
+    // ── Cross-Publish ─────────────────────────────────────
+    match /cross_publish/{docId} {
+      allow read: if isAuth();
+      allow write: if isAuth() && (hasRole('author') || isAdmin());
+    }
+
+    // ── Spotify Tokens ──────────────────────────────────
+    match /spotify_tokens/{userId} {
+      allow read: if isOwner(userId);
+      allow write: if isOwner(userId);
+    }
+
+    // ── Push Notification Tokens ────────────────────────
+    match /push_tokens/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow write: if isOwner(userId);
+    }
+
+    // ── Notification Logs ───────────────────────────────
+    match /notification_logs/{logId} {
+      allow read: if isAdmin();
+      allow create: if isAuth();
+    }
+  }
+}

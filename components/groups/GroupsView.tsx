@@ -4,6 +4,9 @@ import { useAuth } from '@/lib/contexts/AuthContext'
 import { useToast } from '@/lib/contexts/ThemeContext'
 import * as DB from '@/lib/db'
 import { GROUP_TYPES, genId } from '@/lib/constants'
+import { useModal } from '@/lib/contexts/ThemeContext'
+import { VerificationForm } from './VerificationForm'
+import { JoinRequestsPanel } from './JoinRequestsPanel'
 
 interface GroupsViewProps {
   myGroups: any[]
@@ -17,6 +20,7 @@ interface GroupsViewProps {
 export function GroupsView({ myGroups, setMyGroups, activeGroup, setActiveGroup, onBack, onLogout }: GroupsViewProps) {
   const { user } = useAuth()
   const { toast } = useToast()
+  const { showConfirm } = useModal()
   const [screen, setScreen] = useState<'list' | 'create' | 'manage' | 'browse'>('list')
   const [editingGroup, setEditingGroup] = useState<any>(null)
   const [allGroups, setAllGroups] = useState<any[]>([])
@@ -196,6 +200,49 @@ export function GroupsView({ myGroups, setMyGroups, activeGroup, setActiveGroup,
                 <span className="text-[11px] py-1.5 px-2" style={{ color: 'var(--text-muted)' }}>Code: <strong>{editingGroup.inviteCode}</strong></span>
               </div>
             </div>
+
+            {/* Join Requests */}
+            <JoinRequestsPanel
+              groupId={editingGroup.id}
+              onApprove={async (r: any) => {
+                await DB.respondGroupRequest(r.id, 'approved')
+                await DB.addGroupMember(editingGroup.id, { userId: r.userId, email: '', name: r.userName, roles: r.requestedRoles || ['learner'], joinedAt: Date.now() })
+                const updated = await DB.getGroup(editingGroup.id)
+                if (updated) { setEditingGroup(updated); setMyGroups(myGroups.map(g => g.id === (updated as any).id ? updated : g)) }
+                toast(`${r.userName} approved!`, 'success')
+              }}
+              onReject={async (r: any) => {
+                await DB.respondGroupRequest(r.id, 'rejected')
+                toast(`Request from ${r.userName} rejected`, 'info')
+              }}
+            />
+
+            {/* Verification Section */}
+            {editingGroup.official !== true && (editingGroup.type === 'school' || editingGroup.type === 'company') && (
+              <div className="p-3.5 mb-3 rounded-xl" style={cardStyle}>
+                <h3 className="text-sm font-bold mb-2">🏛 Official Verification</h3>
+                {editingGroup.verificationStatus === 'approved' ? (
+                  <div className="text-sm" style={{ color: 'var(--success)' }}>✅ This group has been verified as an official {editingGroup.type} group.</div>
+                ) : editingGroup.verificationStatus === 'pending' ? (
+                  <div className="text-sm" style={{ color: 'var(--warning)' }}>⏳ Verification request is being reviewed by the super admin.</div>
+                ) : editingGroup.verificationStatus === 'rejected' ? (
+                  <div>
+                    <div className="text-sm mb-2" style={{ color: 'var(--danger)' }}>❌ Verification was not approved. You may resubmit with updated details.</div>
+                    <button className="px-3 py-1 rounded-lg text-xs text-white" style={{ background: 'var(--primary)' }}
+                      onClick={() => { const g = { ...editingGroup }; g.verificationStatus = null; setEditingGroup(g) }}>Resubmit</button>
+                  </div>
+                ) : (
+                  <VerificationForm group={editingGroup} onSubmit={async (verData: any) => {
+                    const updated = { ...editingGroup, verificationStatus: 'pending', verificationData: verData, official: false }
+                    await DB.updateGroup(editingGroup.id, { verificationStatus: 'pending', verificationData: verData })
+                    await DB.notifyAdmin({ type: 'verification_request', groupId: editingGroup.id, groupName: editingGroup.name, message: `Official verification requested for ${editingGroup.type} group: ${editingGroup.name}` })
+                    setEditingGroup(updated)
+                    setMyGroups(myGroups.map(g => g.id === updated.id ? updated : g))
+                    toast('Verification request submitted!', 'success')
+                  }} />
+                )}
+              </div>
+            )}
 
             {/* Members */}
             <div className="p-3.5 mb-3 rounded-xl" style={cardStyle}>

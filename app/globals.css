@@ -42,6 +42,54 @@ body {
 @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes bounceIn { 0% { transform: scale(0.3); opacity: 0; } 50% { transform: scale(1.05); } 100% { transform: scale(1); opacity: 1; } }
 @keyframes spin { to { transform: rotate(360deg); } }
+@keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+@keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
+@keyframes confetti1 { 0% { transform: translateY(0) rotate(0deg); opacity: 1; } 100% { transform: translateY(-120px) rotate(360deg) translateX(40px); opacity: 0; } }
+@keyframes confetti2 { 0% { transform: translateY(0) rotate(0deg); opacity: 1; } 100% { transform: translateY(-100px) rotate(-270deg) translateX(-30px); opacity: 0; } }
+@keyframes confetti3 { 0% { transform: translateY(0) rotate(0deg); opacity: 1; } 100% { transform: translateY(-80px) rotate(180deg) translateX(20px); opacity: 0; } }
 
 .animate-fade-in { animation: fadeIn 0.3s ease-out; }
 .animate-bounce-in { animation: bounceIn 0.5s cubic-bezier(0.68, -0.55, 0.265, 1.55); }
+.animate-float { animation: float 2s ease-in-out infinite; }
+.animate-pulse-soft { animation: pulse 2s ease-in-out infinite; }
+.animate-shimmer { background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent); background-size: 200% 100%; animation: shimmer 2s infinite; }
+
+/* Badge confetti particles */
+.badge-confetti { position: relative; }
+.badge-confetti::before, .badge-confetti::after {
+  content: '✨';
+  position: absolute;
+  font-size: 20px;
+}
+.badge-confetti::before { top: -10px; left: 20%; animation: confetti1 1.5s ease-out forwards; }
+.badge-confetti::after { top: -10px; right: 20%; animation: confetti2 1.5s ease-out 0.2s forwards; }
+
+/* Processing spinner with gradient */
+.processing-spinner {
+  border-width: 3px;
+  border-style: solid;
+  border-color: var(--border);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+/* Smooth card hover */
+.card-hover { transition: transform 0.15s ease, box-shadow 0.15s ease; }
+.card-hover:hover { transform: translateY(-2px); box-shadow: 0 4px 20px rgba(0,0,0,0.15); }
+
+/* TikTok-style scroll snap container */
+.scroll-snap-container {
+  scroll-snap-type: y mandatory;
+  overflow-y: auto;
+  height: calc(100vh - 160px);
+  -webkit-overflow-scrolling: touch;
+}
+.scroll-snap-item {
+  scroll-snap-align: start;
+  min-height: calc(100vh - 160px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}

@@ -68,3 +68,13 @@ export function pickRandom<T>(arr: T[], n: number): T[] {
 
 export const EMOJIS = ['📚', '🧠', '💡', '🔬', '📐', '🌍', '🧪', '📊', '🎯', '⚡', '🔢', '📝', '🎨', '🧬', '🌟', '💫', '🔭', '📖', '✨', '🎓']
 export function getEmoji(i: number): string { return EMOJIS[i % EMOJIS.length] }
+
+export const DEFAULT_TEMPLATES = [
+  { id: 'blank', name: 'Blank Course', icon: '📄', subject: '', yearLevel: '', description: '', autoResearch: false },
+  { id: 'auto-research', name: 'AI-Researched Course', icon: '🤖', subject: '', yearLevel: '', description: '', autoResearch: true },
+  { id: 'practice-test', name: 'Practice Test Prep', icon: '📝', subject: '', yearLevel: '', description: 'Upload a practice test and let AI generate learning material to prepare students.', autoResearch: true },
+  { id: 'maths-yr7', name: 'Year 7 Maths', icon: '📐', subject: 'Mathematics', yearLevel: 'Year 7', description: 'Year 7 Mathematics fundamentals', autoResearch: true },
+  { id: 'maths-yr8', name: 'Year 8 Maths', icon: '📐', subject: 'Mathematics', yearLevel: 'Year 8', description: 'Year 8 Mathematics fundamentals', autoResearch: true },
+  { id: 'science-yr7', name: 'Year 7 Science', icon: '🔬', subject: 'Science', yearLevel: 'Year 7', description: 'Year 7 Science fundamentals', autoResearch: true },
+  { id: 'english-yr8', name: 'Year 8 English', icon: '📖', subject: 'English', yearLevel: 'Year 8', description: 'Year 8 English fundamentals', autoResearch: true },
+]

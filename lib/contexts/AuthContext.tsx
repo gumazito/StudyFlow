@@ -1,8 +1,9 @@
 'use client'
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react'
-import { onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, 
-  sendPasswordResetEmail, signOut, updateEmail, updatePassword, 
-  EmailAuthProvider, reauthenticateWithCredential, deleteUser, User as FirebaseUser } from 'firebase/auth'
+import { onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword,
+  sendPasswordResetEmail, signOut, updateEmail, updatePassword,
+  EmailAuthProvider, reauthenticateWithCredential, deleteUser, User as FirebaseUser,
+  GoogleAuthProvider, OAuthProvider, signInWithPopup } from 'firebase/auth'
 import { doc, getDoc, setDoc, collection, getDocs, deleteDoc, query, where } from 'firebase/firestore'
 import { auth, db, SYSTEM_ADMIN_EMAIL } from '@/lib/firebase'
 
@@ -15,6 +16,18 @@ export interface UserProfile {
   isAdmin: boolean
   dob?: string
   yearLevel?: string
+  onboardingComplete?: boolean
+  manualPremium?: boolean
+  subscriptionStatus?: string
+  emailNotifications?: boolean
+  notificationPrefs?: any
+  interests?: string[]
+  studyGoal?: string
+  createdAt?: number
+  authProvider?: string
+  premiumGrantedBy?: string
+  premiumGrantedAt?: number
+  [key: string]: any // Allow additional Firestore fields
 }
 
 interface AuthContextType {
@@ -28,6 +41,9 @@ interface AuthContextType {
   changeEmail: (newEmail: string, currentPassword: string) => Promise<void>
   changePassword: (currentPassword: string, newPassword: string) => Promise<void>
   deleteAccount: () => Promise<void>
+  loginWithGoogle: () => Promise<void>
+  loginWithApple: () => Promise<void>
+  loginWithMicrosoft: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextType>({} as AuthContextType)
@@ -114,6 +130,46 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  const handleSocialLogin = async (provider: any) => {
+    const result = await signInWithPopup(auth, provider)
+    const fbUser = result.user
+    const docRef = doc(db, "users", fbUser.uid)
+    const snap = await getDoc(docRef)
+    if (!snap.exists()) {
+      // First time social login — create user record
+      const isAdmin = fbUser.email?.toLowerCase() === SYSTEM_ADMIN_EMAIL
+      await setDoc(docRef, {
+        name: fbUser.displayName || fbUser.email || 'User',
+        email: fbUser.email,
+        roles: isAdmin ? ['learner', 'admin'] : ['learner'],
+        status: isAdmin ? 'approved' : 'pending',
+        createdAt: Date.now(),
+        authProvider: provider.providerId,
+      })
+      // Notify admin
+      if (!isAdmin) {
+        await setDoc(doc(collection(db, "admin_notifications")), {
+          type: "new_signup", userName: fbUser.displayName || fbUser.email,
+          userEmail: fbUser.email, userRoles: ['learner'], userId: fbUser.uid,
+          message: `New social signup: ${fbUser.displayName || fbUser.email} via ${provider.providerId}`,
+          createdAt: Date.now(), read: false,
+        })
+      }
+    }
+  }
+
+  const loginWithGoogle = async () => {
+    await handleSocialLogin(new GoogleAuthProvider())
+  }
+
+  const loginWithApple = async () => {
+    await handleSocialLogin(new OAuthProvider('apple.com'))
+  }
+
+  const loginWithMicrosoft = async () => {
+    await handleSocialLogin(new OAuthProvider('microsoft.com'))
+  }
+
   const logout = async () => {
     await signOut(auth)
     setUser(null)
@@ -173,7 +229,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, signup, logout, resetPassword, updateProfile, changeEmail, changePassword, deleteAccount }}>
+    <AuthContext.Provider value={{ user, loading, login, signup, logout, resetPassword, updateProfile, changeEmail, changePassword, deleteAccount, loginWithGoogle, loginWithApple, loginWithMicrosoft }}>
       {children}
     </AuthContext.Provider>
   )

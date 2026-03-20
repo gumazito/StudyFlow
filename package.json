@@ -7,8 +7,16 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
+    "type-check": "tsc --noEmit",
     "test": "playwright test",
-    "deploy": "npm run build && firebase deploy"
+    "test:headed": "playwright test --headed",
+    "deploy": "npm run build && firebase deploy --only hosting",
+    "deploy:full": "npm run build && npm run deploy:functions && firebase deploy --only hosting,firestore",
+    "deploy:rules": "firebase deploy --only firestore:rules",
+    "deploy:indexes": "firebase deploy --only firestore:indexes",
+    "deploy:functions": "cd functions && npm run build && cd .. && firebase deploy --only functions",
+    "functions:build": "cd functions && npm run build",
+    "functions:install": "cd functions && npm install"
   },
   "dependencies": {
     "next": "^14.2.0",

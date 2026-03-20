@@ -1,49 +1,72 @@
 # StudyFlow Staging Environment Guide
 
-## How Staging Works
+## Architecture
 
-StudyFlow uses a branch-based staging approach:
+StudyFlow uses a branch-based deployment strategy with separate Firebase projects:
 
-- **main** branch = Production (auto-deploys to gumazito.github.io/StudyFlow/)
-- **staging** branch = Staging (test changes before merging to main)
+| Environment | Branch | Firebase Project | URL |
+|-------------|--------|-----------------|-----|
+| Development | feature/* | studyflow-app (local) | localhost:3000 |
+| Staging | staging | studyflow-staging | studyflow-staging.web.app |
+| Production | main | studyflow-app | studyflow-app.web.app |
 
 ## Setting Up Staging
 
-### Option 1: Local Testing (Simplest)
-Just open index.html directly in your browser from the StudyFlow folder.
-This uses the same Firebase database but lets you test UI changes locally before pushing.
+### 1. Create Staging Firebase Project
 
-### Option 2: Separate Staging Firebase (Recommended for data isolation)
+1. Go to [Firebase Console](https://console.firebase.google.com)
+2. Create a new project called `studyflow-staging`
+3. Enable Authentication (Email/Password)
+4. Create Firestore database (test mode)
+5. Copy the config values
 
-1. Create a second Firebase project called "studyflow-staging"
-2. Copy the config and create a staging version of index.html
-3. Use environment detection to switch configs:
+### 2. Create Staging Environment File
 
-The app already supports this. Add ?staging=true to the URL to use staging mode.
+Copy `.env.staging.example` to `.env.staging.local` and fill in the staging Firebase credentials.
 
-### Option 3: GitHub Branch + Netlify (Full Isolation)
+### 3. Deploy to Staging
 
-1. Create a "staging" branch in GitHub Desktop
-2. Connect it to Netlify for free hosting at studyflow-staging.netlify.app
-3. Test everything on Netlify before merging to main
+```bash
+# Build with staging env
+cp .env.staging.local .env.local
+npm run build
+
+# Deploy to staging
+npm run deploy:staging
+```
+
+Or use the CI/CD pipeline: push to the `staging` branch and GitHub Actions handles it automatically.
+
+## Local Development
+
+```bash
+# Copy .env.example to .env.local and fill in your dev Firebase credentials
+cp .env.example .env.local
+
+# Start dev server
+npm run dev
+```
 
 ## Workflow
 
-1. Create a new branch in GitHub Desktop (e.g., "feature/new-thing")
-2. Make changes to index.html
-3. Test locally by opening the file in your browser
-4. Commit and push the branch
-5. GitHub Actions runs the test suite automatically
-6. If tests pass, create a Pull Request to merge into main
-7. Review the changes, then merge
-8. GitHub Actions auto-deploys to production
+1. Create a feature branch from `main`
+2. Make changes, test locally with `npm run dev`
+3. Run `npm run type-check` and `npm run lint` to verify
+4. Push branch and create PR to `staging`
+5. CI runs: lint, type-check, build, structural tests
+6. Merge to `staging` — auto-deploys to staging Firebase
+7. QA on staging environment
+8. Create PR from `staging` to `main`
+9. Merge to `main` — auto-deploys to production
 
-## Data Mirroring
+## Data Isolation
 
-To test with production-like data in staging:
-1. Go to Firebase Console > Firestore
-2. Export your production data (three dots menu > Export)
-3. Import into your staging project
+Staging uses a completely separate Firebase project, so:
+- Test accounts don't affect production
+- You can freely delete/modify test data
+- Security rules can be tested without risk
 
-Or use the app in staging mode — create test accounts and test courses
-that mirror your production setup.
+To seed staging with test data, create test accounts manually or use the migration script:
+```bash
+npx ts-node scripts/migrate-to-groups.ts
+```

@@ -7,12 +7,20 @@ node_modules/
 .next/
 out/
 build/
+functions/lib/
+functions/node_modules/
 
 # Environment (NEVER commit these)
 .env.local
+.env.*.local
 .env.development.local
 .env.test.local
 .env.production.local
+.env.staging.local
+
+# Playwright
+test-results/
+playwright-report/
 
 # Debug
 npm-debug.log*

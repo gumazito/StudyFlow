@@ -1,10 +1,20 @@
 'use client'
+import { useState, useEffect } from 'react'
 import { useAuth } from '@/lib/contexts/AuthContext'
 import { AuthScreen } from '@/components/auth/AuthScreen'
+import { OnboardingWizard } from '@/components/auth/OnboardingWizard'
 import { RolePicker } from '@/components/layout/RolePicker'
 
 export default function Home() {
   const { user, loading } = useAuth()
+  const [showOnboarding, setShowOnboarding] = useState(false)
+
+  // Check if user needs onboarding
+  useEffect(() => {
+    if (user && !user.onboardingComplete && user.status !== 'pending' && user.status !== 'rejected') {
+      setShowOnboarding(true)
+    }
+  }, [user])
 
   if (loading) {
     return (
@@ -18,6 +28,11 @@ export default function Home() {
   }
 
   if (!user) return <AuthScreen />
+
+  // Show onboarding for new users
+  if (showOnboarding) {
+    return <OnboardingWizard onComplete={() => setShowOnboarding(false)} />
+  }
 
   // Pending approval
   if (user.status === 'pending' && !user.isAdmin) {

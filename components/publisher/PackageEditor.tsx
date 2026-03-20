@@ -4,6 +4,8 @@ import { useAuth } from '@/lib/contexts/AuthContext'
 import { useToast } from '@/lib/contexts/ThemeContext'
 import * as DB from '@/lib/db'
 import { SUBJECTS, YEAR_LEVELS, genId } from '@/lib/constants'
+import { CrossPublishPanel } from './CrossPublishPanel'
+import { FileUpload } from '../groups/FileUpload'
 import { parseFile, extractResearchFacts, extractTestPatterns, aiAutoResearch, generateFromKnowledgeBank } from '@/lib/content-engine'
 import type { Fact, TestPatterns } from '@/lib/content-engine'
 
@@ -25,6 +27,7 @@ export function PackageEditor({ pkg, onSave, onCancel }: PackageEditorProps) {
   const [aiProvider, setAiProvider] = useState<'anthropic' | 'openai'>('anthropic')
   const [showAiSetup, setShowAiSetup] = useState(false)
   const [editingFact, setEditingFact] = useState<{ index: number; text: string; detail: string; category: string } | null>(null)
+  const [syncing, setSyncing] = useState(false)
 
   const update = (key: string, val: any) => setData((d: any) => ({ ...d, [key]: val }))
 
@@ -197,6 +200,132 @@ export function PackageEditor({ pkg, onSave, onCancel }: PackageEditorProps) {
               </div>
             </div>
           </div>
+
+          {/* Collaborators */}
+          <div className="mb-3">
+            <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>👥 Collaborators</label>
+            <div className="text-[11px] mb-2" style={{ color: 'var(--text-muted)' }}>Add other publishers as contributors to this course.</div>
+            {(data.collaborators || []).map((c: any, i: number) => (
+              <div key={i} className="flex justify-between items-center py-1 text-xs">
+                <span>{c.name || c.email} — <span className="font-semibold">{c.role}</span></span>
+                <button className="text-[10px]" style={{ color: 'var(--text-muted)' }} onClick={() => update('collaborators', (data.collaborators || []).filter((_: any, j: number) => j !== i))}>Remove</button>
+              </div>
+            ))}
+            <div className="flex gap-2 mt-1">
+              <input className="flex-1 px-3 py-1.5 rounded-md text-xs" style={inputStyle} id="collab-email" placeholder="Publisher email..." />
+              <select className="px-2 py-1.5 rounded-md text-xs" style={inputStyle} id="collab-role">
+                <option value="contributor">Contributor</option>
+                <option value="owner">Co-Owner</option>
+              </select>
+              <button className="px-3 py-1.5 rounded-lg text-xs" style={{ background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text-secondary)' }}
+                onClick={() => {
+                  const emailEl = document.getElementById('collab-email') as HTMLInputElement
+                  const roleEl = document.getElementById('collab-role') as HTMLSelectElement
+                  if (!emailEl?.value.includes('@')) return
+                  update('collaborators', [...(data.collaborators || []), { email: emailEl.value, role: roleEl.value, addedAt: Date.now() }])
+                  emailEl.value = ''
+                }}>+ Add</button>
+            </div>
+          </div>
+
+          {/* Video Embeds (YouTube / Vimeo) */}
+          <div className="mb-3">
+            <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>🎬 Video Content</label>
+            <div className="text-[11px] mb-2" style={{ color: 'var(--text-muted)' }}>Add YouTube or Vimeo videos for learners to watch alongside flash cards.</div>
+            {(data.videos || []).map((v: any, i: number) => (
+              <div key={i} className="flex justify-between items-center py-1.5 px-2 mb-1 rounded-lg text-xs" style={{ background: 'var(--bg)', border: '1px solid var(--border)' }}>
+                <div className="flex items-center gap-2 flex-1 min-w-0">
+                  <span>{v.url?.includes('youtube') || v.url?.includes('youtu.be') ? '📺' : '🎬'}</span>
+                  <span className="truncate">{v.title || v.url}</span>
+                </div>
+                <button className="text-[10px] ml-2 shrink-0" style={{ color: 'var(--danger)' }} onClick={() => update('videos', (data.videos || []).filter((_: any, j: number) => j !== i))}>Remove</button>
+              </div>
+            ))}
+            <div className="flex gap-2 mt-1">
+              <input className="flex-1 px-3 py-1.5 rounded-md text-xs" style={inputStyle} id="video-url" placeholder="YouTube or Vimeo URL..." />
+              <input className="w-32 px-3 py-1.5 rounded-md text-xs" style={inputStyle} id="video-title" placeholder="Title (optional)" />
+              <button className="px-3 py-1.5 rounded-lg text-xs" style={{ background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text-secondary)' }}
+                onClick={() => {
+                  const urlEl = document.getElementById('video-url') as HTMLInputElement
+                  const titleEl = document.getElementById('video-title') as HTMLInputElement
+                  const url = urlEl?.value?.trim()
+                  if (!url) return
+                  const isYT = url.includes('youtube.com') || url.includes('youtu.be')
+                  const isVimeo = url.includes('vimeo.com')
+                  if (!isYT && !isVimeo) { alert('Please enter a YouTube or Vimeo URL'); return }
+                  let embedUrl = url
+                  if (isYT) {
+                    const match = url.match(/(?:v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/)
+                    if (match) embedUrl = `https://www.youtube.com/embed/${match[1]}`
+                  }
+                  if (isVimeo) {
+                    const match = url.match(/vimeo\.com\/(\d+)/)
+                    if (match) embedUrl = `https://player.vimeo.com/video/${match[1]}`
+                  }
+                  update('videos', [...(data.videos || []), { url, embedUrl, title: titleEl?.value || '', addedAt: Date.now() }])
+                  urlEl.value = ''
+                  if (titleEl) titleEl.value = ''
+                }}>+ Add</button>
+            </div>
+          </div>
+
+          {/* Direct Video Upload */}
+          {data.id && (
+            <div className="mb-3">
+              <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>📤 Upload Video File</label>
+              <div className="text-[11px] mb-2" style={{ color: 'var(--text-muted)' }}>Upload video directly (MP4, MOV, WebM — max 100MB). Stored in Firebase Storage.</div>
+              <FileUpload
+                path={`videos/${data.id}`}
+                accept=".mp4,.mov,.webm,.avi"
+                maxSizeMB={100}
+                label="Upload video file"
+                onUploaded={(url, name) => {
+                  const storagePath = `videos/${data.id}/${Date.now()}_${name}`
+                  DB.addVideoToPackage(data.id, { name, url, storagePath })
+                  update('videos', [...(data.videos || []), { url, title: name, embedUrl: url, isUpload: true, addedAt: Date.now() }])
+                  toast(`Video "${name}" uploaded`, 'success')
+                }}
+              />
+            </div>
+          )}
+
+          {/* Cross-Publish */}
+          {user && data.id && (
+            <CrossPublishPanel
+              packageId={data.id}
+              packageName={data.name || ''}
+              crossPublished={data.crossPublished || []}
+              onUpdate={(published) => update('crossPublished', published)}
+            />
+          )}
+
+          {/* Sync Linked Courses */}
+          {user && data.id && (data.crossPublished || []).some((cp: any) => cp.mode === 'link') && (
+            <div className="mt-3 p-3 rounded-xl" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 12 }}>
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-xs font-bold">🔄 Sync Linked Courses</div>
+                  <div className="text-[10px]" style={{ color: 'var(--text-muted)' }}>Push your latest facts & categories to all linked copies</div>
+                </div>
+                <button
+                  className="px-3 py-1.5 rounded-lg text-xs font-bold text-white"
+                  style={{ background: syncing ? 'var(--text-muted)' : 'var(--primary)' }}
+                  disabled={syncing}
+                  onClick={async () => {
+                    setSyncing(true)
+                    try {
+                      const updated = await DB.propagateLinkedCourseUpdates(data.id)
+                      toast(`Synced to ${updated.length} linked course${updated.length !== 1 ? 's' : ''}`, 'success')
+                    } catch (err: any) {
+                      toast('Sync failed: ' + err.message, 'error')
+                    }
+                    setSyncing(false)
+                  }}>
+                  {syncing ? '⏳ Syncing...' : '🔄 Sync Now'}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

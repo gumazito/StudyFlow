@@ -1,8 +1,12 @@
 'use client'
 import { useState } from 'react'
 import { useAuth, dobToYearLevel } from '@/lib/contexts/AuthContext'
-import { useToast } from '@/lib/contexts/ThemeContext'
+import { useToast, useModal } from '@/lib/contexts/ThemeContext'
 import * as DB from '@/lib/db'
+import { AiProviderSettings } from './AiProviderSettings'
+import { SubscriptionPanel } from './SubscriptionPanel'
+import { NotificationPreferences } from './NotificationPreferences'
+import { exportUserData } from '@/lib/data-export'
 
 interface ProfileScreenProps {
   onBack: () => void
@@ -12,6 +16,7 @@ interface ProfileScreenProps {
 export function ProfileScreen({ onBack, onLogout }: ProfileScreenProps) {
   const { user, updateProfile, changeEmail, changePassword, deleteAccount } = useAuth()
   const { toast } = useToast()
+  const { showConfirm } = useModal()
   const [name, setName] = useState(user?.name || '')
   const [dob, setDob] = useState(user?.dob || '')
   const [newEmail, setNewEmail] = useState('')
@@ -20,6 +25,12 @@ export function ProfileScreen({ onBack, onLogout }: ProfileScreenProps) {
   const [confirmPassword, setConfirmPassword] = useState('')
   const [busy, setBusy] = useState(false)
   const [requestedRoles, setRequestedRoles] = useState<string[]>([])
+  const [privacySettings, setPrivacySettings] = useState<any>({ showInSearch: true, showProgress: true, showOnLeaderboard: true })
+
+  // Load privacy settings
+  useState(() => {
+    if (user?.id) DB.getPrivacySettings(user.id).then(setPrivacySettings)
+  })
 
   const allRoles = ['learner', 'author', 'mentor']
   const currentRoles = user?.roles || []
@@ -94,8 +105,10 @@ export function ProfileScreen({ onBack, onLogout }: ProfileScreenProps) {
   }
 
   const handleDeleteAccount = async () => {
-    if (!window.confirm('DELETE your account and ALL data? This cannot be undone.')) return
-    if (!window.confirm('FINAL WARNING: All test history, progress, badges, and data will be permanently removed.')) return
+    const ok1 = await showConfirm('DELETE your account and ALL data? This cannot be undone.', 'Delete Account')
+    if (!ok1) return
+    const ok2 = await showConfirm('FINAL WARNING: All test history, progress, badges, and data will be permanently removed.', 'Are you absolutely sure?')
+    if (!ok2) return
     setBusy(true)
     try {
       await deleteAccount()
@@ -120,7 +133,22 @@ export function ProfileScreen({ onBack, onLogout }: ProfileScreenProps) {
         <div className="p-3.5 mb-3 rounded-xl" style={cardStyle}>
           <h3 className="text-sm font-bold mb-1">Account</h3>
           <div className="text-xs" style={{ color: 'var(--text-muted)' }}>Email: {user?.email}</div>
-          <div className="text-xs" style={{ color: 'var(--text-muted)' }}>Roles: {currentRoles.map(r => r === 'learner' ? '🎓' : r === 'author' ? '✏️' : r === 'mentor' ? '🧭' : r === 'admin' ? '🛡️' : r).join(' ')}</div>
+          <div className="flex gap-1.5 flex-wrap mt-1.5">
+            {currentRoles.map(r => {
+              const roleConfig: Record<string, { icon: string; label: string; bg: string; color: string }> = {
+                learner: { icon: '🎓', label: 'Learner', bg: 'rgba(0,206,201,.12)', color: 'var(--accent)' },
+                author: { icon: '✏️', label: 'Publisher', bg: 'rgba(108,92,231,.12)', color: 'var(--primary)' },
+                mentor: { icon: '🧭', label: 'Mentor', bg: 'rgba(253,203,110,.12)', color: 'var(--warning)' },
+                admin: { icon: '🛡️', label: 'Admin', bg: 'rgba(225,112,85,.12)', color: 'var(--danger)' },
+              }
+              const cfg = roleConfig[r] || { icon: '📋', label: r, bg: 'var(--bg)', color: 'var(--text-muted)' }
+              return (
+                <span key={r} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold" style={{ background: cfg.bg, color: cfg.color }}>
+                  {cfg.icon} {cfg.label}
+                </span>
+              )
+            })}
+          </div>
           {user?.yearLevel && <div className="text-xs" style={{ color: 'var(--text-muted)' }}>Year Level: {user.yearLevel}</div>}
         </div>
 
@@ -187,6 +215,73 @@ export function ProfileScreen({ onBack, onLogout }: ProfileScreenProps) {
               📤 Submit Request ({requestedRoles.filter(r => !currentRoles.includes(r)).length} new)
             </button>
           )}
+        </div>
+
+        {/* AI Provider Settings */}
+        <div className="p-3.5 mb-4 rounded-xl" style={cardStyle}>
+          <AiProviderSettings cardStyle={cardStyle} inputStyle={inputStyle} />
+        </div>
+
+        {/* Subscription */}
+        <SubscriptionPanel cardStyle={cardStyle} />
+
+        {/* Notification Preferences */}
+        <div className="mb-4">
+          <NotificationPreferences cardStyle={cardStyle} />
+        </div>
+
+        {/* Privacy & Data */}
+        <div className="p-3.5 mb-4 rounded-xl" style={cardStyle}>
+          <h3 className="text-sm font-bold mb-2">🔒 Privacy & Data</h3>
+
+          {/* Privacy toggles */}
+          <div className="space-y-2.5 mb-4">
+            {[
+              { key: 'showInSearch', label: 'Appear in search results', desc: 'Others can find you by name or email' },
+              { key: 'showProgress', label: 'Show my progress to followers', desc: 'Followers see your XP, streaks, and test scores' },
+              { key: 'showOnLeaderboard', label: 'Show on leaderboard', desc: 'Appear in leaderboard rankings' },
+            ].map(opt => (
+              <div key={opt.key} className="flex items-center gap-3">
+                <div className="flex-1">
+                  <div className="text-xs font-semibold">{opt.label}</div>
+                  <div className="text-[10px]" style={{ color: 'var(--text-muted)' }}>{opt.desc}</div>
+                </div>
+                <button
+                  className="w-10 h-5 rounded-full relative transition-colors"
+                  style={{ background: (privacySettings as any)[opt.key] !== false ? 'var(--primary)' : 'var(--border)' }}
+                  onClick={async () => {
+                    const newVal = !((privacySettings as any)[opt.key] !== false)
+                    const updated = { ...privacySettings, [opt.key]: newVal }
+                    setPrivacySettings(updated)
+                    await DB.updatePrivacySettings(user!.id, updated)
+                    toast('Privacy updated', 'success')
+                  }}
+                >
+                  <div className="w-4 h-4 rounded-full bg-white absolute top-0.5 transition-all" style={{ left: (privacySettings as any)[opt.key] !== false ? 21 : 2 }} />
+                </button>
+              </div>
+            ))}
+          </div>
+
+          <div className="flex gap-2 flex-wrap">
+            <button
+              className="px-3 py-1.5 rounded-lg text-xs font-semibold"
+              style={{ background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text-secondary)' }}
+              onClick={async () => {
+                if (!user?.id) return
+                try {
+                  await exportUserData(user.id)
+                  toast('Data export downloaded', 'success')
+                } catch (e: any) { toast('Export failed: ' + e.message, 'error') }
+              }}
+              disabled={busy}
+            >
+              📦 Export My Data
+            </button>
+          </div>
+          <p className="text-[10px] mt-2" style={{ color: 'var(--text-muted)' }}>
+            Download all your data as a JSON file (GDPR data portability).
+          </p>
         </div>
 
         {/* Danger zone */}

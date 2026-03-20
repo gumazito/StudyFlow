@@ -156,14 +156,18 @@ export function extractTestPatterns(rawText: string): TestPatterns {
 }
 
 // ============================================================
-// AI AUTO-RESEARCH — calls Claude or ChatGPT API
+// AI AUTO-RESEARCH — calls AI providers with automatic fallback
+// Supports: Claude, ChatGPT, Gemini, Grok
 // ============================================================
+import { callAiWithFallback } from './ai-providers'
+
 export async function aiAutoResearch(
   subject: string, yearLevel: string, packageName: string,
   testPatterns: TestPatterns | null,
-  apiKey: string, apiProvider: 'anthropic' | 'openai'
+  apiKey: string, apiProvider: 'anthropic' | 'openai',
+  fullAiConfig?: any // New: pass full multi-provider config for fallback
 ): Promise<{ facts: Fact[]; categories: string[]; note: string; error?: boolean }> {
-  if (!apiKey) return { facts: [], categories: [], note: 'No AI API key configured' }
+  if (!apiKey && !fullAiConfig) return { facts: [], categories: [], note: 'No AI API key configured' }
 
   const topics = testPatterns?.topicsCovered?.length
     ? `The practice test covers: ${testPatterns.topicsCovered.join(', ')}.`
@@ -184,39 +188,56 @@ Only output the JSON array.`
 
   try {
     let responseText = ''
+    let usedProvider = apiProvider
 
-    if (apiProvider === 'anthropic') {
-      const resp = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 4000,
-          messages: [{ role: 'user', content: prompt }],
-        }),
-      })
-      if (!resp.ok) throw new Error(`Claude API error: ${resp.status}`)
-      const data = await resp.json()
-      responseText = data.content?.[0]?.text || ''
-    } else {
-      const resp = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify({
-          model: 'gpt-4o-mini',
-          messages: [{ role: 'user', content: prompt }],
-          max_tokens: 4000,
-        }),
-      })
-      if (!resp.ok) throw new Error(`OpenAI API error: ${resp.status}`)
-      const data = await resp.json()
-      responseText = data.choices?.[0]?.message?.content || ''
+    // Try new multi-provider fallback system first
+    if (fullAiConfig && (fullAiConfig.providers || fullAiConfig.priority)) {
+      try {
+        const result = await callAiWithFallback(fullAiConfig, prompt)
+        responseText = result.text
+        usedProvider = result.provider as any
+      } catch {
+        // Fall through to legacy single-provider
+      }
     }
+
+    // Legacy single-provider fallback
+    if (!responseText && apiKey) {
+      if (apiProvider === 'anthropic') {
+        const resp = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': apiKey,
+            'anthropic-version': '2023-06-01',
+            'anthropic-dangerous-direct-browser-access': 'true',
+          },
+          body: JSON.stringify({
+            model: 'claude-sonnet-4-20250514',
+            max_tokens: 4000,
+            messages: [{ role: 'user', content: prompt }],
+          }),
+        })
+        if (!resp.ok) throw new Error(`Claude API error: ${resp.status}`)
+        const data = await resp.json()
+        responseText = data.content?.[0]?.text || ''
+      } else {
+        const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+          body: JSON.stringify({
+            model: 'gpt-4o-mini',
+            messages: [{ role: 'user', content: prompt }],
+            max_tokens: 4000,
+          }),
+        })
+        if (!resp.ok) throw new Error(`OpenAI API error: ${resp.status}`)
+        const data = await resp.json()
+        responseText = data.choices?.[0]?.message?.content || ''
+      }
+    }
+
+    if (!responseText) throw new Error('No AI response received')
 
     const jsonMatch = responseText.match(/\[[\s\S]*\]/)
     if (!jsonMatch) throw new Error('No valid JSON in response')
@@ -233,8 +254,9 @@ Only output the JSON array.`
       }))
       .filter((f: Fact) => f.text.length > 10)
 
+    const providerNames: Record<string, string> = { anthropic: 'Claude', openai: 'ChatGPT', gemini: 'Gemini', grok: 'Grok' }
     const categories = [...new Set(facts.map(f => f.category))]
-    return { facts, categories, note: `AI generated ${facts.length} facts using ${apiProvider === 'anthropic' ? 'Claude' : 'ChatGPT'}` }
+    return { facts, categories, note: `AI generated ${facts.length} facts using ${providerNames[usedProvider] || usedProvider}` }
   } catch (err: any) {
     console.error('AI auto-research error:', err)
     return { facts: [], categories: [], note: `AI error: ${err.message}`, error: true }
