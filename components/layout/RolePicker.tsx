@@ -80,7 +80,7 @@ export function RolePicker() {
   if (user.isAdmin) availableViews.push('admin')
   if (user.roles.includes('author') || user.isAdmin) availableViews.push('author')
   if (user.roles.includes('learner') || user.isAdmin) availableViews.push('learner')
-  if (user.roles.includes('mentor')) availableViews.push('mentor')
+  if (user.roles.includes('mentor') || user.isAdmin) availableViews.push('mentor')
 
   // Auto-select if only one view
   const currentView = activeView || (availableViews.length === 1 ? availableViews[0] : null)

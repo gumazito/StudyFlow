@@ -96,7 +96,7 @@ export function AuthScreen() {
               <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>Remember me</span>
             </label>
             <button className="w-full py-3.5 rounded-lg text-sm font-bold text-white transition-all" style={{ background: 'linear-gradient(135deg, var(--primary), var(--accent))' }} onClick={handleLogin} disabled={busy}>
-              {busy ? 'Logging in...' : '\uD83D\uDD10 Log In'}
+              {busy ? 'Logging in...' : '🔐 Log In'}
             </button>
 
             {/* Social login divider */}
@@ -141,7 +141,7 @@ export function AuthScreen() {
             <div className="mb-3.5">
               <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>Date of Birth</label>
               <input type="date" className={inputClass} style={{ ...inputStyle, colorScheme: 'dark' }} value={dob} onChange={e => setDob(e.target.value)} />
-              {dob && <p className="text-xs mt-1" style={{ color: 'var(--accent)' }}>Auto-detected: {dobToYearLevel(dob)}</p>}
+              {dob && dobToYearLevel(dob) && <p className="text-xs mt-1" style={{ color: 'var(--accent)' }}>Auto-detected: {dobToYearLevel(dob)}</p>}
             </div>
             <div className="mb-3.5">
               <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>Email</label>
@@ -155,9 +155,9 @@ export function AuthScreen() {
               <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>I want to... (select all that apply)</label>
               <div className="grid grid-cols-3 gap-1.5">
                 {[
-                  { id: 'learner', icon: '\uD83C\uDF93', name: 'Learner', desc: 'Take courses' },
-                  { id: 'author', icon: '\u270F\uFE0F', name: 'Publisher', desc: 'Create courses' },
-                  { id: 'mentor', icon: '\uD83E\uDDED', name: 'Mentor', desc: 'Guide learners' },
+                  { id: 'learner', icon: '🎓', name: 'Learner', desc: 'Take courses' },
+                  { id: 'author', icon: '✏️', name: 'Publisher', desc: 'Create courses' },
+                  { id: 'mentor', icon: '🧭', name: 'Mentor', desc: 'Guide learners' },
                 ].map(role => (
                   <button key={role.id} onClick={() => toggleRole(role.id)}
                     className="p-3 rounded-lg text-center transition-all"
@@ -199,7 +199,7 @@ export function AuthScreen() {
             </div>
 
             <button className="w-full py-3.5 rounded-lg text-sm font-bold text-white" style={{ background: 'linear-gradient(135deg, var(--primary), var(--accent))', opacity: !tosAccepted ? 0.5 : 1 }} onClick={handleSignup} disabled={busy || !tosAccepted}>
-              {busy ? 'Creating account...' : '\uD83D\uDE80 Create Account'}
+              {busy ? 'Creating account...' : '🚀 Create Account'}
             </button>
             <div className="text-center mt-4 text-sm" style={{ color: 'var(--text-muted)' }}>
               Already have an account? <button className="underline" style={{ color: 'var(--primary-light, #a29bfe)' }} onClick={() => { setError(''); setMode('login') }}>Log in</button>
@@ -214,7 +214,7 @@ export function AuthScreen() {
               <input type="email" className={inputClass} style={inputStyle} value={email} onChange={e => setEmail(e.target.value)} placeholder="your@email.com" />
             </div>
             <button className="w-full py-3.5 rounded-lg text-sm font-bold text-white" style={{ background: 'linear-gradient(135deg, var(--primary), var(--accent))' }} onClick={handleForgot} disabled={busy}>
-              {busy ? 'Sending...' : '\uD83D\uDCE7 Send Reset Email'}
+              {busy ? 'Sending...' : '📧 Send Reset Email'}
             </button>
             <div className="text-center mt-4 text-sm">
               <button className="underline" style={{ color: 'var(--primary-light, #a29bfe)' }} onClick={() => { setError(''); setSuccess(''); setMode('login') }}>Back to login</button>

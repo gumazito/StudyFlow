@@ -65,7 +65,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             background: current.type === 'success' ? 'var(--success)' : current.type === 'error' ? 'var(--danger)' : 'var(--primary)',
           }}
         >
-          {current.type === 'success' ? '\u2705 ' : current.type === 'error' ? '\u274C ' : '\u2139\uFE0F '}
+          {current.type === 'success' ? '✅ ' : current.type === 'error' ? '❌ ' : 'ℹ️ '}
           {current.message}
         </div>
       )}

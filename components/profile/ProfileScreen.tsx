@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { useAuth, dobToYearLevel } from '@/lib/contexts/AuthContext'
 import { useToast, useModal } from '@/lib/contexts/ThemeContext'
 import * as DB from '@/lib/db'
+import { SUPER_USER_EMAILS } from '@/lib/firebase'
 import { AiProviderSettings } from './AiProviderSettings'
 import { SubscriptionPanel } from './SubscriptionPanel'
 import { NotificationPreferences } from './NotificationPreferences'
@@ -55,7 +56,7 @@ export function ProfileScreen({ onBack, onLogout }: ProfileScreenProps) {
     try {
       const yearLevel = dobToYearLevel(dob) || undefined
       await updateProfile({ dob, yearLevel } as any)
-      toast(`DOB updated — ${yearLevel}`, 'success')
+      toast(yearLevel ? `DOB updated — ${yearLevel}` : 'DOB updated', 'success')
     } catch (e: any) { toast('Failed: ' + e.message, 'error') }
     setBusy(false)
   }
@@ -168,7 +169,7 @@ export function ProfileScreen({ onBack, onLogout }: ProfileScreenProps) {
             <input type="date" className={inputClass} style={{ ...inputStyle, colorScheme: 'dark' }} value={dob} onChange={e => setDob(e.target.value)} />
             <button className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white" style={{ background: 'var(--primary)' }} onClick={saveDob} disabled={busy || !dob}>Save</button>
           </div>
-          {dob && <p className="text-xs mt-1" style={{ color: 'var(--accent)' }}>Year level: {dobToYearLevel(dob)}</p>}
+          {dob && dobToYearLevel(dob) && <p className="text-xs mt-1" style={{ color: 'var(--accent)' }}>Year level: {dobToYearLevel(dob)}</p>}
         </div>
 
         {/* Change email */}
@@ -188,34 +189,56 @@ export function ProfileScreen({ onBack, onLogout }: ProfileScreenProps) {
           <button className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white" style={{ background: 'var(--primary)' }} onClick={handleChangePassword} disabled={busy || !currentPassword || !newPassword}>Change Password</button>
         </div>
 
-        {/* Request roles */}
-        <div className="p-3.5 mb-3 rounded-xl" style={cardStyle}>
-          <h3 className="text-sm font-bold mb-2">🎭 Request Additional Roles</h3>
-          <p className="text-xs mb-2" style={{ color: 'var(--text-muted)' }}>Select roles to request. An admin will review.</p>
-          <div className="flex gap-1.5 flex-wrap mb-2">
-            {allRoles.map(role => {
-              const has = currentRoles.includes(role)
-              const req = requestedRoles.includes(role)
-              return (
-                <button key={role} className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors"
-                  style={{
-                    background: has ? 'rgba(0,184,148,.15)' : req ? 'var(--primary)' : 'var(--bg)',
-                    color: has ? 'var(--success)' : req ? 'white' : 'var(--text-muted)',
-                    border: `1px solid ${has ? 'var(--success)' : req ? 'var(--primary)' : 'var(--border)'}`,
-                    cursor: has ? 'default' : 'pointer',
-                  }}
-                  onClick={() => { if (!has) setRequestedRoles(p => p.includes(role) ? p.filter(r => r !== role) : [...p, role]) }}>
-                  {role === 'learner' ? '🎓' : role === 'author' ? '✏️' : '🧭'} {role}{has ? ' ✓' : ''}
+        {/* Request roles — super users get instant grant, others need admin review */}
+        {(() => {
+          const isSuperUser = SUPER_USER_EMAILS.includes(user?.email?.toLowerCase() || '')
+          return (
+            <div className="p-3.5 mb-3 rounded-xl" style={cardStyle}>
+              <h3 className="text-sm font-bold mb-2">🎭 {isSuperUser ? 'Manage Roles' : 'Request Additional Roles'}</h3>
+              <p className="text-xs mb-2" style={{ color: 'var(--text-muted)' }}>
+                {isSuperUser ? 'As a super user, roles are granted instantly.' : 'Select roles to request. An admin will review.'}
+              </p>
+              <div className="flex gap-1.5 flex-wrap mb-2">
+                {allRoles.map(role => {
+                  const has = currentRoles.includes(role)
+                  const req = requestedRoles.includes(role)
+                  return (
+                    <button key={role} className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors"
+                      style={{
+                        background: has ? 'rgba(0,184,148,.15)' : req ? 'var(--primary)' : 'var(--bg)',
+                        color: has ? 'var(--success)' : req ? 'white' : 'var(--text-muted)',
+                        border: `1px solid ${has ? 'var(--success)' : req ? 'var(--primary)' : 'var(--border)'}`,
+                        cursor: has ? 'default' : 'pointer',
+                      }}
+                      onClick={() => { if (!has) setRequestedRoles(p => p.includes(role) ? p.filter(r => r !== role) : [...p, role]) }}>
+                      {role === 'learner' ? '🎓' : role === 'author' ? '✏️' : '🧭'} {role}{has ? ' ✓' : ''}
+                    </button>
+                  )
+                })}
+              </div>
+              {requestedRoles.filter(r => !currentRoles.includes(r)).length > 0 && (
+                <button className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white" style={{ background: isSuperUser ? 'var(--success)' : 'var(--primary)' }}
+                  onClick={async () => {
+                    if (isSuperUser) {
+                      // Super users: instantly grant roles
+                      const newRoles = [...new Set([...currentRoles, ...requestedRoles])]
+                      setBusy(true)
+                      try {
+                        await updateProfile({ roles: newRoles } as any)
+                        toast(`Roles updated: ${newRoles.join(', ')}`, 'success')
+                        setRequestedRoles([])
+                      } catch (e: any) { toast('Failed: ' + e.message, 'error') }
+                      setBusy(false)
+                    } else {
+                      await handleRoleRequest()
+                    }
+                  }} disabled={busy}>
+                  {isSuperUser ? '✅' : '📤'} {isSuperUser ? 'Activate' : 'Submit Request'} ({requestedRoles.filter(r => !currentRoles.includes(r)).length} new)
                 </button>
-              )
-            })}
-          </div>
-          {requestedRoles.filter(r => !currentRoles.includes(r)).length > 0 && (
-            <button className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white" style={{ background: 'var(--primary)' }} onClick={handleRoleRequest} disabled={busy}>
-              📤 Submit Request ({requestedRoles.filter(r => !currentRoles.includes(r)).length} new)
-            </button>
-          )}
-        </div>
+              )}
+            </div>
+          )
+        })()}
 
         {/* AI Provider Settings */}
         <div className="p-3.5 mb-4 rounded-xl" style={cardStyle}>

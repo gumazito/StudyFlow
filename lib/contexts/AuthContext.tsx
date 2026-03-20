@@ -55,6 +55,8 @@ export function dobToYearLevel(dob: string): string | null {
   const age = today.getFullYear() - birthDate.getFullYear()
   const monthAdj = (today.getMonth() - birthDate.getMonth()) < 0 ? -1 : 0
   const actualAge = age + monthAdj
+  // Only show year level for school-age students (roughly ages 12-17 → Years 7-12)
+  if (actualAge < 12 || actualAge > 17) return null
   const yearLevel = Math.min(12, Math.max(7, actualAge - 5))
   return `Year ${yearLevel}`
 }
