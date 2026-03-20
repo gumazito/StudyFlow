@@ -1,18 +1,22 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { useAuth } from '@/lib/contexts/AuthContext'
+import { SUPER_USER_EMAILS } from '@/lib/firebase'
 import { AuthScreen } from '@/components/auth/AuthScreen'
 import { OnboardingWizard } from '@/components/auth/OnboardingWizard'
 import { RolePicker } from '@/components/layout/RolePicker'
 
 export default function Home() {
-  const { user, loading } = useAuth()
+  const { user, loading, logout } = useAuth()
   const [showOnboarding, setShowOnboarding] = useState(false)
 
-  // Check if user needs onboarding
+  // Check if user needs onboarding — super users/admins skip
   useEffect(() => {
     if (user && !user.onboardingComplete && user.status !== 'pending' && user.status !== 'rejected') {
-      setShowOnboarding(true)
+      const isSuperUser = SUPER_USER_EMAILS.includes(user.email?.toLowerCase() || '')
+      if (!user.isAdmin && !isSuperUser) {
+        setShowOnboarding(true)
+      }
     }
   }, [user])
 
@@ -45,7 +49,7 @@ export default function Home() {
             Your account is waiting for admin approval. You will be able to log in once approved.
           </p>
           <p className="text-xs mb-5" style={{ color: 'var(--text-muted)' }}>Email: {user.email}</p>
-          <button onClick={() => {}} className="px-4 py-2 rounded-lg text-sm" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--text)' }}>
+          <button onClick={logout} className="px-4 py-2 rounded-lg text-sm" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--text)' }}>
             Log Out
           </button>
         </div>

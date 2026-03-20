@@ -36,17 +36,18 @@ export function RolePicker() {
       try {
         const groups = await DB.getGroupsForUser(user.id) as any[]
         if (groups.length === 0) {
-          // Create personal group if none exist
           const pg = createPersonalGroup(user.id, user.name)
           await DB.createGroup(pg)
           setMyGroups([pg])
           setActiveGroup(pg.id)
         } else {
           setMyGroups(groups)
-          setActiveGroup(groups[0].id)
+          // Default to personal group if exists, otherwise first group
+          const personal = groups.find(g => g.type === 'personal')
+          setActiveGroup(personal?.id || groups[0].id)
         }
 
-        // Handle invite link — auto-join group
+        // Handle invite link — auto-join group with specified roles
         if (typeof window !== 'undefined') {
           const params = new URLSearchParams(window.location.search)
           const inviteGroupId = params.get('invite')
@@ -62,7 +63,6 @@ export function RolePicker() {
                 toast(`Joined group: ${(joinedGroup as any).name || 'group'}`, 'success')
               }
             }
-            // Clean URL params
             window.history.replaceState({}, '', window.location.pathname)
           }
         }
@@ -76,22 +76,36 @@ export function RolePicker() {
 
   if (!user) return null
 
+  const isAdmin = user.isAdmin
+
+  // Active group info
+  const currentGroup = myGroups.find(g => g.id === activeGroup) as any
+  const isPersonalSpace = currentGroup?.type === 'personal'
+
+  // In personal space: all roles available. In groups: use the roles assigned
+  const groupRoles: string[] = isPersonalSpace
+    ? ['learner', 'author', 'mentor']
+    : (currentGroup?.members?.find((m: any) => m.userId === user.id)?.roles || [])
+
+  // Build available views based on context
   const availableViews: string[] = []
-  if (user.isAdmin) availableViews.push('admin')
-  if (user.roles.includes('author') || user.isAdmin) availableViews.push('author')
-  if (user.roles.includes('learner') || user.isAdmin) availableViews.push('learner')
-  if (user.roles.includes('mentor') || user.isAdmin) availableViews.push('mentor')
+  if (isAdmin) availableViews.push('admin')
+  if (groupRoles.includes('author') || groupRoles.includes('publisher') || isAdmin) availableViews.push('author')
+  if (groupRoles.includes('learner') || isAdmin) availableViews.push('learner')
+  if (groupRoles.includes('mentor') || isAdmin) availableViews.push('mentor')
 
   // Auto-select if only one view
   const currentView = activeView || (availableViews.length === 1 ? availableViews[0] : null)
 
-  // TODO: Replace these with actual view components in later sprints
+  // Route to view components
   if (currentView === 'admin') return <AdminDashboard onSwitchView={setActiveView} onLogout={logout} />
   if (currentView === 'author') return <PublisherDashboard onSwitchView={setActiveView} onLogout={logout} />
   if (currentView === 'learner') return <LearnerDashboard onSwitchView={setActiveView} onLogout={logout} />
   if (currentView === 'mentor') return <MentorDashboard onSwitchView={setActiveView} onLogout={logout} />
   if (currentView === 'profile') return <ProfileScreen onBack={() => setActiveView(null)} onLogout={logout} />
-  if (currentView === 'groups') return <GroupsView myGroups={myGroups} setMyGroups={g => setMyGroups(g)} activeGroup={activeGroup} setActiveGroup={setActiveGroup} onBack={() => setActiveView(null)} onLogout={logout} />
+  if (currentView === 'groups') return <GroupsView myGroups={myGroups} setMyGroups={g => setMyGroups(g)} activeGroup={activeGroup || ''} setActiveGroup={setActiveGroup} onBack={() => setActiveView(null)} onLogout={logout} />
+
+  const otherGroups = myGroups.filter(g => g.type !== 'personal')
 
   return (
     <div className="min-h-screen" style={{ background: 'var(--bg)' }}>
@@ -108,89 +122,146 @@ export function RolePicker() {
         </div>
       </nav>
 
-      {/* Role picker */}
-      <div className="max-w-md mx-auto px-5 pt-10 text-center animate-fade-in">
-        <h1 className="text-2xl font-extrabold mb-2">Welcome, {user.name}!</h1>
-        <p className="text-sm mb-6" style={{ color: 'var(--text-secondary)' }}>Choose how you would like to use StudyFlow:</p>
+      <div className="max-w-md mx-auto px-5 pt-8 animate-fade-in">
+        <h1 className="text-2xl font-extrabold mb-1 text-center">Welcome, {user.name}!</h1>
+        <p className="text-sm mb-6 text-center" style={{ color: 'var(--text-secondary)' }}>Choose a space to get started</p>
 
-        <div className="flex flex-col gap-3">
-          {availableViews.includes('admin') && (
-            <button className="w-full py-3.5 rounded-xl text-sm font-bold text-white" style={{ background: 'var(--danger)' }} onClick={() => setActiveView('admin')}>
-              {"🛡️"} Administrator
+        {/* Personal Space Card */}
+        <div className="mb-4 p-4 rounded-xl" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+          <div className="flex items-center gap-3 mb-3">
+            <span className="text-2xl">🏠</span>
+            <div>
+              <div className="text-sm font-bold">My Personal Space</div>
+              <div className="text-[10px]" style={{ color: 'var(--text-muted)' }}>Your own area — all roles, full freedom</div>
+            </div>
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            <button
+              className="py-2.5 rounded-lg text-xs font-bold text-white"
+              style={{ background: 'linear-gradient(135deg, var(--accent), var(--success))' }}
+              onClick={() => { setActiveGroup(myGroups.find(g => g.type === 'personal')?.id || activeGroup); setActiveView('learner') }}
+            >
+              🎓 Learn
             </button>
-          )}
-          {availableViews.includes('author') && (
-            <button className="w-full py-3.5 rounded-xl text-sm font-bold text-white" style={{ background: 'var(--primary)' }} onClick={() => setActiveView('author')}>
-              {"✏️"} Publisher
+            <button
+              className="py-2.5 rounded-lg text-xs font-bold text-white"
+              style={{ background: 'var(--primary)' }}
+              onClick={() => { setActiveGroup(myGroups.find(g => g.type === 'personal')?.id || activeGroup); setActiveView('author') }}
+            >
+              ✏️ Publish
             </button>
-          )}
-          {availableViews.includes('learner') && (
-            <button className="w-full py-3.5 rounded-xl text-sm font-bold text-white" style={{ background: 'linear-gradient(135deg, var(--accent), var(--success))' }} onClick={() => setActiveView('learner')}>
-              {"🎓"} Learner
+            <button
+              className="py-2.5 rounded-lg text-xs font-bold text-white"
+              style={{ background: 'linear-gradient(135deg, #e17055, #fdcb6e)' }}
+              onClick={() => { setActiveGroup(myGroups.find(g => g.type === 'personal')?.id || activeGroup); setActiveView('mentor') }}
+            >
+              🧭 Mentor
             </button>
-          )}
-          {availableViews.includes('mentor') && (
-            <button className="w-full py-3.5 rounded-xl text-sm font-bold text-white" style={{ background: 'linear-gradient(135deg, #e17055, #fdcb6e)' }} onClick={() => setActiveView('mentor')}>
-              {"🧭"} Mentor
+          </div>
+        </div>
+
+        {/* Admin Card (only for admins) */}
+        {isAdmin && (
+          <button
+            className="w-full mb-4 p-4 rounded-xl text-left flex items-center gap-3"
+            style={{ background: 'rgba(225,112,85,.08)', border: '1px solid rgba(225,112,85,.3)' }}
+            onClick={() => setActiveView('admin')}
+          >
+            <span className="text-2xl">🛡️</span>
+            <div>
+              <div className="text-sm font-bold" style={{ color: 'var(--danger)' }}>Admin Dashboard</div>
+              <div className="text-[10px]" style={{ color: 'var(--text-muted)' }}>Manage users, approvals, and platform settings</div>
+            </div>
+            <span className="ml-auto text-sm" style={{ color: 'var(--text-muted)' }}>→</span>
+          </button>
+        )}
+
+        {/* Groups Section */}
+        <div className="mb-4">
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-sm font-bold">👥 My Groups</h2>
+            <button
+              className="text-[10px] font-semibold px-2.5 py-1 rounded-lg"
+              style={{ background: 'var(--primary)', color: 'white' }}
+              onClick={() => setActiveView('groups')}
+            >
+              Browse / Join
             </button>
+          </div>
+
+          {otherGroups.length === 0 ? (
+            <div className="p-4 rounded-xl text-center" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+              <div className="text-2xl mb-2">🔗</div>
+              <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                No groups yet. Join a school, class, or study group to collaborate with others.
+              </p>
+              <button
+                className="mt-2 px-4 py-1.5 rounded-lg text-xs font-semibold text-white"
+                style={{ background: 'var(--accent)' }}
+                onClick={() => setActiveView('groups')}
+              >
+                Find Groups
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {otherGroups.map((group: any) => {
+                const myMember = (group.members || []).find((m: any) => m.userId === user.id)
+                const myRoles: string[] = myMember?.roles || ['learner']
+                return (
+                  <div key={group.id} className="p-3 rounded-xl" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+                    <div className="flex items-center justify-between mb-2">
+                      <div>
+                        <div className="text-xs font-bold">{group.name}</div>
+                        <div className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
+                          {(group.members || []).length} members · {group.type === 'school' ? '🏫 School' : group.type === 'organisation' ? '🏢 Org' : '📖 Study Group'}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex gap-1.5 flex-wrap">
+                      {myRoles.includes('learner') && (
+                        <button className="px-3 py-1.5 rounded-lg text-[10px] font-bold text-white" style={{ background: 'var(--accent)' }}
+                          onClick={() => { setActiveGroup(group.id); setActiveView('learner') }}>
+                          🎓 Learn
+                        </button>
+                      )}
+                      {(myRoles.includes('author') || myRoles.includes('publisher')) && (
+                        <button className="px-3 py-1.5 rounded-lg text-[10px] font-bold text-white" style={{ background: 'var(--primary)' }}
+                          onClick={() => { setActiveGroup(group.id); setActiveView('author') }}>
+                          ✏️ Publish
+                        </button>
+                      )}
+                      {myRoles.includes('mentor') && (
+                        <button className="px-3 py-1.5 rounded-lg text-[10px] font-bold text-white" style={{ background: '#e17055' }}
+                          onClick={() => { setActiveGroup(group.id); setActiveView('mentor') }}>
+                          🧭 Mentor
+                        </button>
+                      )}
+                      {(myRoles.includes('admin') || group.createdBy === user.id) && (
+                        <button className="px-3 py-1.5 rounded-lg text-[10px] font-bold" style={{ background: 'rgba(225,112,85,.1)', color: 'var(--danger)', border: '1px solid rgba(225,112,85,.3)' }}
+                          onClick={() => setActiveView('groups')}>
+                          ⚙️ Manage
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
           )}
         </div>
 
-        {/* Active Group Indicator */}
-        {myGroups.length > 0 && activeGroup && (
-          <div className="mt-5 px-4 py-2.5 rounded-xl text-xs" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
-            <div className="flex items-center justify-between">
-              <span style={{ color: 'var(--text-muted)' }}>Active group:</span>
-              <select
-                className="text-xs font-semibold px-2 py-1 rounded"
-                style={{ background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text)' }}
-                value={activeGroup}
-                onChange={e => { setActiveGroup(e.target.value); toast(`Switched to ${myGroups.find(g => g.id === e.target.value)?.name || 'group'}`, 'success') }}
-              >
-                {myGroups.map(g => (
-                  <option key={g.id} value={g.id}>{g.name}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-        )}
-
-        <div className="mt-4 pt-4 border-t flex gap-2 justify-center" style={{ borderColor: 'var(--border)' }}>
+        {/* Footer buttons */}
+        <div className="pt-3 pb-8 border-t flex gap-2 justify-center" style={{ borderColor: 'var(--border)' }}>
           <button className="px-4 py-2 rounded-lg text-xs" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--text-secondary)' }} onClick={() => setActiveView('profile')}>
-            {"⚙️"} Profile
+            ⚙️ Profile
           </button>
           <button className="px-4 py-2 rounded-lg text-xs" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--text-secondary)' }} onClick={() => setActiveView('groups')}>
-            {"🏫"} Groups
+            🏫 Groups
           </button>
           <button className="px-4 py-2 rounded-lg text-xs" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--text-secondary)' }} onClick={toggle}>
             {dark ? '☀️ Light' : '🌙 Dark'}
           </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// Placeholder for views not yet migrated
-function PlaceholderView({ name, icon, onBack }: { name: string; icon: string; onBack: () => void }) {
-  return (
-    <div className="min-h-screen" style={{ background: 'var(--bg)' }}>
-      <nav className="flex items-center justify-between px-4 py-2.5 border-b" style={{ borderColor: 'var(--border)' }}>
-        <button className="text-sm" style={{ color: 'var(--text-secondary)' }} onClick={onBack}>{"←"} Back</button>
-        <h1 className="text-lg font-extrabold" style={{
-          background: 'linear-gradient(135deg, #a29bfe, #00cec9)',
-          WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent'
-        }}>StudyFlow</h1>
-        <div />
-      </nav>
-      <div className="max-w-lg mx-auto px-5 pt-20 text-center">
-        <div className="text-6xl mb-4">{icon}</div>
-        <h2 className="text-2xl font-extrabold mb-2">{name}</h2>
-        <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
-          This view is being migrated to the new architecture. Coming in the next sprint.
-        </p>
-        <div className="mt-6 px-4 py-2 rounded-lg inline-block text-xs" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
-          Sprint 2+ placeholder
         </div>
       </div>
     </div>
