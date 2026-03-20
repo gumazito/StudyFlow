@@ -116,22 +116,22 @@ export function RolePicker() {
         <div className="flex flex-col gap-3">
           {availableViews.includes('admin') && (
             <button className="w-full py-3.5 rounded-xl text-sm font-bold text-white" style={{ background: 'var(--danger)' }} onClick={() => setActiveView('admin')}>
-              \uD83D\uDEE1\uFE0F Administrator
+              {"🛡️"} Administrator
             </button>
           )}
           {availableViews.includes('author') && (
             <button className="w-full py-3.5 rounded-xl text-sm font-bold text-white" style={{ background: 'var(--primary)' }} onClick={() => setActiveView('author')}>
-              \u270F\uFE0F Publisher
+              {"✏️"} Publisher
             </button>
           )}
           {availableViews.includes('learner') && (
             <button className="w-full py-3.5 rounded-xl text-sm font-bold text-white" style={{ background: 'linear-gradient(135deg, var(--accent), var(--success))' }} onClick={() => setActiveView('learner')}>
-              \uD83C\uDF93 Learner
+              {"🎓"} Learner
             </button>
           )}
           {availableViews.includes('mentor') && (
             <button className="w-full py-3.5 rounded-xl text-sm font-bold text-white" style={{ background: 'linear-gradient(135deg, #e17055, #fdcb6e)' }} onClick={() => setActiveView('mentor')}>
-              \uD83E\uDDED Mentor
+              {"🧭"} Mentor
             </button>
           )}
         </div>
@@ -157,13 +157,13 @@ export function RolePicker() {
 
         <div className="mt-4 pt-4 border-t flex gap-2 justify-center" style={{ borderColor: 'var(--border)' }}>
           <button className="px-4 py-2 rounded-lg text-xs" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--text-secondary)' }} onClick={() => setActiveView('profile')}>
-            \u2699\uFE0F Profile
+            {"⚙️"} Profile
           </button>
           <button className="px-4 py-2 rounded-lg text-xs" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--text-secondary)' }} onClick={() => setActiveView('groups')}>
-            \uD83C\uDFEB Groups
+            {"🏫"} Groups
           </button>
           <button className="px-4 py-2 rounded-lg text-xs" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--text-secondary)' }} onClick={toggle}>
-            {dark ? '\u2600\uFE0F Light' : '\uD83C\uDF19 Dark'}
+            {dark ? '☀️ Light' : '🌙 Dark'}
           </button>
         </div>
       </div>
@@ -176,7 +176,7 @@ function PlaceholderView({ name, icon, onBack }: { name: string; icon: string; o
   return (
     <div className="min-h-screen" style={{ background: 'var(--bg)' }}>
       <nav className="flex items-center justify-between px-4 py-2.5 border-b" style={{ borderColor: 'var(--border)' }}>
-        <button className="text-sm" style={{ color: 'var(--text-secondary)' }} onClick={onBack}>\u2190 Back</button>
+        <button className="text-sm" style={{ color: 'var(--text-secondary)' }} onClick={onBack}>{"←"} Back</button>
         <h1 className="text-lg font-extrabold" style={{
           background: 'linear-gradient(135deg, #a29bfe, #00cec9)',
           WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent'
