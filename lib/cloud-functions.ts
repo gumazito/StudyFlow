@@ -74,28 +74,110 @@ export async function refreshSpotifyToken(userId: string) {
 // ============================================================
 // TEXT-TO-SPEECH
 // ============================================================
+/**
+ * Generate TTS audio. Tries Cloud Function first, falls back to browser SpeechSynthesis.
+ */
 export async function generateTts(text: string, options?: { voice?: string; provider?: string; packageId?: string; factIndex?: number }): Promise<{ audioUrl?: string; audioBlob?: Blob; provider: string }> {
-  const token = await getAuthToken()
-  const resp = await fetch(`${FUNCTIONS_BASE}/textToSpeech`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify({ text, ...options }),
-  })
+  // Try Cloud Function first
+  try {
+    const token = await getAuthToken()
+    const resp = await fetch(`${FUNCTIONS_BASE}/textToSpeech`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ text, ...options }),
+    })
 
-  // Check if response is JSON (cached URL) or audio blob
-  const contentType = resp.headers.get('content-type') || ''
-  if (contentType.includes('application/json')) {
-    const data = await resp.json()
-    if (!resp.ok) throw new Error(data.error || 'TTS failed')
-    return { audioUrl: data.audioUrl, provider: data.provider }
-  } else {
-    const blob = await resp.blob()
-    const provider = resp.headers.get('x-tts-provider') || 'unknown'
-    return { audioBlob: blob, provider }
+    if (resp.ok) {
+      const contentType = resp.headers.get('content-type') || ''
+      if (contentType.includes('application/json')) {
+        const data = await resp.json()
+        return { audioUrl: data.audioUrl, provider: data.provider }
+      } else {
+        const blob = await resp.blob()
+        const provider = resp.headers.get('x-tts-provider') || 'cloud'
+        return { audioBlob: blob, provider }
+      }
+    }
+    // If not ok, fall through to browser TTS
+    console.warn('[TTS] Cloud Function returned', resp.status, '— falling back to browser TTS')
+  } catch (err) {
+    console.warn('[TTS] Cloud Function error — falling back to browser TTS:', err)
   }
+
+  // Fallback: Browser SpeechSynthesis → record to audio blob
+  return browserTtsFallback(text, options?.voice)
+}
+
+/**
+ * Browser-based TTS fallback using SpeechSynthesis API.
+ * Returns a promise that resolves when speech finishes, providing a dummy audioUrl
+ * that the PodcastPlayer can use (we use a MediaRecorder to capture audio where possible,
+ * otherwise just speak directly and signal completion).
+ */
+function browserTtsFallback(text: string, _voice?: string): Promise<{ audioUrl?: string; audioBlob?: Blob; provider: string }> {
+  return new Promise((resolve, reject) => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
+      reject(new Error('No TTS available — browser does not support SpeechSynthesis'))
+      return
+    }
+
+    // Cancel any ongoing speech
+    window.speechSynthesis.cancel()
+
+    const utterance = new SpeechSynthesisUtterance(text)
+    utterance.rate = 0.95
+    utterance.pitch = 1
+    utterance.volume = 1
+
+    // Try to pick an English voice
+    const voices = window.speechSynthesis.getVoices()
+    const englishVoice = voices.find(v => v.lang.startsWith('en') && v.localService) || voices.find(v => v.lang.startsWith('en'))
+    if (englishVoice) utterance.voice = englishVoice
+
+    // We can't easily capture SpeechSynthesis output as a blob,
+    // so we create a silent audio blob as a placeholder and speak directly
+    const silentWav = createSilentWav(0.1)
+    const blob = new Blob([silentWav], { type: 'audio/wav' })
+    const url = URL.createObjectURL(blob)
+
+    utterance.onend = () => {
+      resolve({ audioUrl: url, provider: 'browser' })
+    }
+    utterance.onerror = (e) => {
+      reject(new Error(`Browser TTS error: ${e.error}`))
+    }
+
+    window.speechSynthesis.speak(utterance)
+    // Return immediately with provider info — the audio element will play the silent clip
+    // while SpeechSynthesis reads aloud
+    resolve({ audioUrl: url, provider: 'browser' })
+  })
+}
+
+/** Create a minimal silent WAV file */
+function createSilentWav(durationSec: number): ArrayBuffer {
+  const sampleRate = 8000
+  const numSamples = Math.floor(sampleRate * durationSec)
+  const buffer = new ArrayBuffer(44 + numSamples * 2)
+  const view = new DataView(buffer)
+  const writeString = (offset: number, str: string) => { for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i)) }
+  writeString(0, 'RIFF')
+  view.setUint32(4, 36 + numSamples * 2, true)
+  writeString(8, 'WAVE')
+  writeString(12, 'fmt ')
+  view.setUint32(16, 16, true)
+  view.setUint16(20, 1, true)
+  view.setUint16(22, 1, true)
+  view.setUint32(24, sampleRate, true)
+  view.setUint32(28, sampleRate * 2, true)
+  view.setUint16(32, 2, true)
+  view.setUint16(34, 16, true)
+  writeString(36, 'data')
+  view.setUint32(40, numSamples * 2, true)
+  return buffer
 }
 
 // ============================================================

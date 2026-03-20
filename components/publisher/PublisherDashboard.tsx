@@ -7,6 +7,7 @@ import { SUBJECTS, YEAR_LEVELS, COUNTRIES, SUBJECT_TOPICS, DEFAULT_TEMPLATES, ge
 import { useModal } from '@/lib/contexts/ThemeContext'
 import { PackageEditor } from './PackageEditor'
 import { PdfExport } from './PdfExport'
+import { GlobalSpotifyBar } from '@/components/layout/GlobalSpotifyBar'
 
 interface PublisherDashboardProps {
   onSwitchView: ((view: string | null) => void) | null
@@ -100,6 +101,7 @@ export function PublisherDashboard({ onSwitchView, onLogout }: PublisherDashboar
       <nav className="flex items-center justify-between px-4 py-2.5 border-b" style={{ borderColor: 'var(--border)' }}>
         <div className="text-lg font-extrabold" style={{ background: 'linear-gradient(135deg, #a29bfe, #00cec9)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>StudyFlow</div>
         <div className="flex items-center gap-2">
+          <GlobalSpotifyBar />
           <span className="text-[10px] px-2.5 py-0.5 rounded-full font-semibold" style={{ background: 'rgba(108,92,231,.15)', color: 'var(--primary, #6c5ce7)' }}>Publisher</span>
           {onSwitchView && <button className="text-xs px-2 py-1" style={{ color: 'var(--text-secondary)' }} onClick={() => onSwitchView(null)}>Switch</button>}
           <span className="text-sm" style={{ color: 'var(--text-muted)' }}>{user?.name}</span>

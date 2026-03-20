@@ -8,6 +8,7 @@ import { MentorDashboard } from '@/components/mentor/MentorDashboard'
 import { GroupsView } from '@/components/groups/GroupsView'
 import { PublisherDashboard } from '@/components/publisher/PublisherDashboard'
 import { LearnerDashboard } from '@/components/learner/LearnerDashboard'
+import { GlobalSpotifyBar } from '@/components/layout/GlobalSpotifyBar'
 import * as DB from '@/lib/db'
 import { genId } from '@/lib/constants'
 
@@ -119,6 +120,7 @@ export function RolePicker() {
           WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent'
         }}>StudyFlow</h1>
         <div className="flex items-center gap-2">
+          <GlobalSpotifyBar />
           <button onClick={toggle} className="text-xs px-2 py-1.5 rounded-lg" style={{ color: 'var(--text-secondary)' }}>
             {dark ? '☀️' : '🌙'}
           </button>

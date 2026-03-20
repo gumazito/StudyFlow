@@ -8,6 +8,7 @@ import { AiProviderSettings } from './AiProviderSettings'
 import { SubscriptionPanel } from './SubscriptionPanel'
 import { NotificationPreferences } from './NotificationPreferences'
 import { exportUserData } from '@/lib/data-export'
+import { GlobalSpotifyBar } from '@/components/layout/GlobalSpotifyBar'
 import { AvatarPicker, UserAvatar } from './AvatarPicker'
 import type { AvatarData } from './AvatarPicker'
 
@@ -126,7 +127,10 @@ export function ProfileScreen({ onBack, onLogout }: ProfileScreenProps) {
       <nav className="flex items-center justify-between px-4 py-2.5 border-b" style={{ borderColor: 'var(--border)' }}>
         <button className="text-sm" style={{ color: 'var(--text-secondary)' }} onClick={onBack}>← Back</button>
         <div className="text-lg font-extrabold" style={{ background: 'linear-gradient(135deg, #a29bfe, #00cec9)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>StudyFlow</div>
-        <button className="text-xs" style={{ color: 'var(--text-secondary)' }} onClick={onLogout}>Logout</button>
+        <div className="flex items-center gap-2">
+          <GlobalSpotifyBar />
+          <button className="text-xs" style={{ color: 'var(--text-secondary)' }} onClick={onLogout}>Logout</button>
+        </div>
       </nav>
 
       <div className="max-w-xl mx-auto px-4 py-4">

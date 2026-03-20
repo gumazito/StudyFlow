@@ -34,7 +34,7 @@ export function initAppCheck() {
   const siteKey = process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY
 
   if (!siteKey) {
-    console.warn('[AppCheck] No reCAPTCHA site key found. Set NEXT_PUBLIC_RECAPTCHA_SITE_KEY in .env.local')
+    console.debug('[AppCheck] No reCAPTCHA site key found. Set NEXT_PUBLIC_RECAPTCHA_SITE_KEY in .env.local to enable App Check.')
     return
   }
 

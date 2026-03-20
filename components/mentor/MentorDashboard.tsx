@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react'
 import { useAuth } from '@/lib/contexts/AuthContext'
 import { useToast } from '@/lib/contexts/ThemeContext'
 import * as DB from '@/lib/db'
+import { GlobalSpotifyBar } from '@/components/layout/GlobalSpotifyBar'
 
 interface MentorDashboardProps {
   onSwitchView: ((view: string | null) => void) | null
@@ -74,6 +75,7 @@ export function MentorDashboard({ onSwitchView, onLogout }: MentorDashboardProps
       <nav className="flex items-center justify-between px-4 py-2.5 border-b" style={{ borderColor: 'var(--border)' }}>
         <div className="text-lg font-extrabold" style={{ background: 'linear-gradient(135deg, #a29bfe, #00cec9)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>StudyFlow</div>
         <div className="flex items-center gap-2">
+          <GlobalSpotifyBar />
           <span className="text-[10px] px-2.5 py-0.5 rounded-full font-semibold" style={{ background: 'rgba(225,112,85,.15)', color: '#fdcb6e' }}>Mentor</span>
           {onSwitchView && <button className="text-xs px-2 py-1" style={{ color: 'var(--text-secondary)' }} onClick={() => onSwitchView(null)}>Switch</button>}
           <span className="text-sm" style={{ color: 'var(--text-muted)' }}>{user?.name}</span>

@@ -85,26 +85,16 @@ git add -A
 if git diff --cached --quiet; then
   echo -e "${YELLOW}⚠${NC} No changes to commit"
 else
-  COMMIT_MSG="Deploy: Landing page, Firestore indexes fix, AI components, Marketplace, WCAG, Security
+  COMMIT_MSG="Deploy: Global Spotify bar, Podcast learn mode, TTS fallback, COOP fix
 
-- Added LandingPage: hero, features grid, testimonials, pricing, for schools, CTA, footer
-- Landing page shows for unauthenticated users, Sign Up / Log In navigates to AuthScreen
-- Added JSON-LD structured data (WebApplication schema) for SEO
-- Full SEO metadata: Open Graph, Twitter Cards, robots, canonical, keywords
-- Fixed Firestore index errors: added music_shares, content_reports, mentor indexes
-- Made getMusicShares gracefully handle missing index during build
-- Integrated AiMentor into Progress tab with personalised coaching
-- Added AiVisualLearning (concept maps, timelines, flowcharts) to Learn mode
-- Wired NaplanPractice (Year 7/9) into Browse tab with full overlay
-- Added AvatarPicker to ProfileScreen with emoji/upload/generated options
-- Built MentorMarketplace: profiles, search, ratings, paid/free pricing
-- WCAG 2.1 AA: skip-to-content, focus-visible, reduced motion, contrast fixes
-- Initialised App Check (reCAPTCHA v3) and Error Tracking in providers
-- Added accessibility utilities (ARIA live, focus trap, keyboard detection)
-- Fixed color contrast: --text-muted bumped to meet 4.5:1 ratio
-- Added mentor marketplace DB functions (profiles, reviews, requests)
-- Storage rules for avatars, videos, groups, TTS audio
-- AuthScreen now accepts onBack prop for landing page navigation"
+- Moved Spotify player to GlobalSpotifyBar dropdown in header (all views)
+- Added GlobalSpotifyBar to all dashboard nav bars (Learner, Publisher, Admin, Mentor, Profile, Groups)
+- Removed old SpotifyPlayer from learn mode inline area
+- Made Podcast its own learn mode tab (alongside Cards, Scroll, Feed)
+- Added browser SpeechSynthesis TTS fallback when Cloud Function returns 500
+- Silenced App Check warning (console.debug instead of console.warn)
+- Added COOP headers (same-origin-allow-popups) to firebase.json for Firebase Auth popups
+- Added COEP unsafe-none header for Spotify embed compatibility"
 
   git commit -m "$COMMIT_MSG"
   git push origin main 2>&1 | tail -5
@@ -129,7 +119,15 @@ echo -e "${CYAN}═════════════════════�
 echo ""
 echo -e "  Site:  ${CYAN}https://studyflow-f2e7a.web.app${NC}"
 echo -e "  Rules: Firestore + Storage rules updated"
+echo -e "  COOP:  same-origin-allow-popups (fixes Auth popup errors)"
 echo -e "  Git:   Pushed to gumazito/StudyFlow"
+echo ""
+echo -e "  ${YELLOW}Changes in this deploy:${NC}"
+echo -e "    • Global Spotify bar in header (all views)"
+echo -e "    • Podcast is now a learn mode tab"
+echo -e "    • Browser TTS fallback when Cloud Function TTS fails"
+echo -e "    • COOP headers fix Auth popup warnings"
+echo -e "    • App Check warning silenced"
 echo ""
 echo -e "  ${YELLOW}Tip:${NC} If build errors occur, run: npx tsc --noEmit"
 echo ""

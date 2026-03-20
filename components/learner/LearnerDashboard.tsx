@@ -9,13 +9,13 @@ import type { Question } from '@/lib/question-generator'
 import { PdfExport } from '@/components/publisher/PdfExport'
 import { StudyPlanPanel } from './StudyPlanPanel'
 import { VoiceInput } from './VoiceInput'
-import { SpotifyPlayer } from './SpotifyPlayer'
 import { PodcastPlayer } from './PodcastPlayer'
 import { moderateText } from '@/lib/content-moderation'
 import { StudyBuddy } from './StudyBuddy'
 import { AiMentor } from './AiMentor'
 import { AiVisualLearning } from './AiVisualLearning'
 import NaplanPractice from './NaplanPractice'
+import { GlobalSpotifyBar } from '@/components/layout/GlobalSpotifyBar'
 
 interface LearnerDashboardProps {
   onSwitchView: ((view: string | null) => void) | null
@@ -53,7 +53,7 @@ export function LearnerDashboard({ onSwitchView, onLogout }: LearnerDashboardPro
   // Learn state
   const [learnIndex, setLearnIndex] = useState(0)
   const [flipped, setFlipped] = useState(false)
-  const [learnMode, setLearnMode] = useState<'swipe' | 'scroll' | 'tiktok'>('swipe')
+  const [learnMode, setLearnMode] = useState<'swipe' | 'scroll' | 'tiktok' | 'podcast'>('swipe')
   const [spacedRepMode, setSpacedRepMode] = useState(false)
   const [dueForReview, setDueForReview] = useState<string[]>([])
   const [shuffledFacts, setShuffledFacts] = useState<any[]>([])
@@ -321,6 +321,7 @@ export function LearnerDashboard({ onSwitchView, onLogout }: LearnerDashboardPro
         ) : <div />}
         <div className="text-lg font-extrabold" style={{ background: 'linear-gradient(135deg, #a29bfe, #00cec9)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>StudyFlow</div>
         <div className="flex items-center gap-2">
+          <GlobalSpotifyBar />
           <span className="text-[10px] px-2.5 py-0.5 rounded-full font-semibold" style={{ background: 'rgba(0,206,201,.15)', color: 'var(--accent)' }}>Learner</span>
           {onSwitchView && <button className="text-xs px-2 py-1" style={{ color: 'var(--text-secondary)' }} onClick={() => onSwitchView(null)}>Switch</button>}
           <button className="text-xs px-2 py-1" style={{ color: 'var(--text-secondary)' }} onClick={onLogout}>Logout</button>
@@ -779,19 +780,14 @@ export function LearnerDashboard({ onSwitchView, onLogout }: LearnerDashboardPro
               <button className="px-3 py-1 rounded-full text-[11px] font-semibold" style={{ background: learnMode === 'swipe' ? 'var(--primary)' : 'transparent', color: learnMode === 'swipe' ? 'white' : 'var(--text-muted)' }} onClick={() => setLearnMode('swipe')}>🃏 Cards</button>
               <button className="px-3 py-1 rounded-full text-[11px] font-semibold" style={{ background: learnMode === 'scroll' ? 'var(--primary)' : 'transparent', color: learnMode === 'scroll' ? 'white' : 'var(--text-muted)' }} onClick={() => setLearnMode('scroll')}>📜 Scroll</button>
               <button className="px-3 py-1 rounded-full text-[11px] font-semibold" style={{ background: learnMode === 'tiktok' ? 'var(--primary)' : 'transparent', color: learnMode === 'tiktok' ? 'white' : 'var(--text-muted)' }} onClick={() => setLearnMode('tiktok')}>📱 Feed</button>
+              {activePkg?.facts?.length > 0 && (
+                <button className="px-3 py-1 rounded-full text-[11px] font-semibold" style={{ background: learnMode === 'podcast' ? 'var(--primary)' : 'transparent', color: learnMode === 'podcast' ? 'white' : 'var(--text-muted)' }} onClick={() => setLearnMode('podcast')}>🎧 Podcast</button>
+              )}
               {dueForReview.length > 0 && (
                 <button className="px-3 py-1 rounded-full text-[10px] font-semibold" style={{ background: spacedRepMode ? 'var(--warning)' : 'transparent', color: spacedRepMode ? 'white' : 'var(--text-muted)' }} onClick={() => setSpacedRepMode(!spacedRepMode)}>🧠 Review</button>
               )}
               <button className="px-3 py-1 rounded-full text-[10px] font-semibold" style={{ background: 'transparent', color: 'var(--accent)' }} onClick={() => setShowVisualLearning(true)}>🎨 Visual</button>
             </div>
-
-            {/* Spotify Study Music */}
-            <SpotifyPlayer cardStyle={cs} />
-
-            {/* Podcast Mode (audio learning) */}
-            {activePkg?.facts?.length > 0 && (
-              <PodcastPlayer facts={activePkg.facts} packageName={activePkg.name} packageId={activePkg.id} cardStyle={cs} />
-            )}
 
             {/* Video content (if course has embedded videos) */}
             {activePkg && (activePkg.videos || []).length > 0 && (
@@ -900,6 +896,9 @@ export function LearnerDashboard({ onSwitchView, onLogout }: LearnerDashboardPro
                   </div>
                 ))}
               </div>
+            ) : learnMode === 'podcast' && activePkg?.facts?.length > 0 ? (
+              /* Podcast mode — audio learning */
+              <PodcastPlayer facts={activePkg.facts} packageName={activePkg.name} packageId={activePkg.id} cardStyle={cs} />
             ) : null}
           </div>
           )
