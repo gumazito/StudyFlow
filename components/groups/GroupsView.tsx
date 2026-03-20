@@ -7,6 +7,7 @@ import { GROUP_TYPES, genId } from '@/lib/constants'
 import { useModal } from '@/lib/contexts/ThemeContext'
 import { VerificationForm } from './VerificationForm'
 import { JoinRequestsPanel } from './JoinRequestsPanel'
+import { searchSchools, type AustralianSchool } from '@/lib/australian-schools'
 
 interface GroupsViewProps {
   myGroups: any[]
@@ -24,11 +25,15 @@ export function GroupsView({ myGroups, setMyGroups, activeGroup, setActiveGroup,
   const [screen, setScreen] = useState<'list' | 'create' | 'manage' | 'browse'>('list')
   const [editingGroup, setEditingGroup] = useState<any>(null)
   const [allGroups, setAllGroups] = useState<any[]>([])
+  const [browseSearch, setBrowseSearch] = useState('')
   const [schoolSearch, setSchoolSearch] = useState('')
   const [schoolResults, setSchoolResults] = useState<any[]>([])
   const [newGroup, setNewGroup] = useState({ type: 'school', name: '', description: '', official: false })
   const [inviteRoles, setInviteRoles] = useState(['learner'])
   const [joinRequests, setJoinRequests] = useState<any[]>([])
+  const [memberSearch, setMemberSearch] = useState('')
+  const [memberSearchResults, setMemberSearchResults] = useState<any[]>([])
+  const memberSearchTimer = { current: null as any }
 
   const cardStyle = { background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 12 }
   const inputStyle = { background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--text)' }
@@ -38,20 +43,14 @@ export function GroupsView({ myGroups, setMyGroups, activeGroup, setActiveGroup,
     setAllGroups((all as any[]).filter(g => g.type !== 'personal'))
   }
 
-  const searchSchools = async () => {
-    if (!schoolSearch || schoolSearch.length < 3) return
-    try {
-      const resp = await fetch(`https://www.myschool.edu.au/api/search/school?SearchText=${encodeURIComponent(schoolSearch)}&PageSize=10`)
-      if (!resp.ok) throw new Error('API error')
-      const data = await resp.json()
-      setSchoolResults((data.Results || data.results || []).map((s: any) => ({
-        name: s.SchoolName || s.schoolName || s.Name,
-        suburb: s.Suburb || s.suburb || '',
-        state: s.State || s.state || '',
-        postcode: s.Postcode || s.postcode || '',
-        sector: s.SchoolSector || s.schoolSector || '',
-      })))
-    } catch { setSchoolResults([]) }
+  // Live search — filters as you type, no API calls needed
+  const handleSchoolSearch = (query: string) => {
+    setSchoolSearch(query)
+    if (query.length >= 2) {
+      setSchoolResults(searchSchools(query, 8) as any[])
+    } else {
+      setSchoolResults([])
+    }
   }
 
   const createGroup = async () => {
@@ -135,11 +134,7 @@ export function GroupsView({ myGroups, setMyGroups, activeGroup, setActiveGroup,
             {newGroup.type === 'school' && (
               <div className="mb-3">
                 <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>Search Australian Schools</label>
-                <div className="flex gap-2">
-                  <input className="flex-1 px-3 py-2 rounded-md text-sm" style={inputStyle} value={schoolSearch} onChange={e => setSchoolSearch(e.target.value)} placeholder="Type school name..."
-                    onKeyDown={e => { if (e.key === 'Enter') searchSchools() }} />
-                  <button className="px-3 py-1.5 rounded-lg text-xs text-white" style={{ background: 'var(--primary)' }} onClick={searchSchools}>Search</button>
-                </div>
+                <input className="w-full px-3 py-2 rounded-md text-sm" style={inputStyle} value={schoolSearch} onChange={e => handleSchoolSearch(e.target.value)} placeholder="Start typing to search..." />
                 {schoolResults.map((s, i) => (
                   <div key={i} className="p-2 mt-1 rounded-lg cursor-pointer" style={cardStyle}
                     onClick={() => { setNewGroup({ ...newGroup, name: s.name }); setSchoolResults([]) }}>
@@ -285,25 +280,45 @@ export function GroupsView({ myGroups, setMyGroups, activeGroup, setActiveGroup,
               ))}
             </div>
 
-            {/* Add member */}
+            {/* Add member — live search */}
             <div className="p-3.5 rounded-xl" style={cardStyle}>
               <h3 className="text-sm font-bold mb-2">➕ Add Member</h3>
-              <div className="flex gap-2">
-                <input id="add-member-input" className="flex-1 px-3 py-2 rounded-md text-sm" style={inputStyle} placeholder="Search by name or email..." />
-                <button className="px-3 py-1.5 rounded-lg text-xs text-white" style={{ background: 'var(--primary)' }} onClick={async () => {
-                  const q = (document.getElementById('add-member-input') as HTMLInputElement)?.value
-                  if (!q) return
-                  const results = await DB.searchUsers(q)
-                  const nonMembers = (results as any[]).filter(u => !(editingGroup.members || []).some((m: any) => m.userId === u.uid))
-                  if (nonMembers.length === 0) { toast('No users found or all already members', 'info'); return }
-                  for (const u of nonMembers) {
-                    await DB.addGroupMember(editingGroup.id, { userId: u.uid, email: u.email, name: u.name, roles: ['learner'], joinedAt: Date.now() })
-                  }
-                  const updated = await DB.getGroup(editingGroup.id)
-                  if (updated) { setEditingGroup(updated); setMyGroups(myGroups.map(g => g.id === (updated as any).id ? updated : g)) }
-                  toast(`Added ${nonMembers.length} member(s)`, 'success')
-                }}>Add</button>
-              </div>
+              <input className="w-full px-3 py-2 rounded-md text-sm" style={inputStyle} placeholder="Start typing name or email..."
+                value={memberSearch}
+                onChange={e => {
+                  const q = e.target.value
+                  setMemberSearch(q)
+                  if (memberSearchTimer.current) clearTimeout(memberSearchTimer.current)
+                  if (q.trim().length < 2) { setMemberSearchResults([]); return }
+                  memberSearchTimer.current = setTimeout(async () => {
+                    const results = await DB.searchUsers(q.trim())
+                    setMemberSearchResults((results as any[]).filter(u => !(editingGroup.members || []).some((m: any) => m.userId === u.uid)))
+                  }, 300)
+                }}
+              />
+              {memberSearchResults.length > 0 && (
+                <div className="mt-2 space-y-1">
+                  {memberSearchResults.map((u: any) => (
+                    <div key={u.uid} className="flex justify-between items-center p-2 rounded-lg" style={{ background: 'var(--bg)', border: '1px solid var(--border)' }}>
+                      <div>
+                        <div className="text-xs font-semibold">{u.name}</div>
+                        <div className="text-[10px]" style={{ color: 'var(--text-muted)' }}>{u.email}</div>
+                      </div>
+                      <button className="px-2.5 py-1 rounded-lg text-[10px] font-semibold text-white" style={{ background: 'var(--primary)' }}
+                        onClick={async () => {
+                          await DB.addGroupMember(editingGroup.id, { userId: u.uid, email: u.email, name: u.name, roles: ['learner'], joinedAt: Date.now() })
+                          const updated = await DB.getGroup(editingGroup.id)
+                          if (updated) { setEditingGroup(updated); setMyGroups(myGroups.map(g => g.id === (updated as any).id ? updated : g)) }
+                          setMemberSearchResults(prev => prev.filter(x => x.uid !== u.uid))
+                          toast(`Added ${u.name}`, 'success')
+                        }}>+ Add</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {memberSearch.trim().length >= 2 && memberSearchResults.length === 0 && (
+                <p className="text-[10px] mt-1.5" style={{ color: 'var(--text-muted)' }}>No matching users found</p>
+              )}
             </div>
           </div>
         )}
@@ -312,13 +327,12 @@ export function GroupsView({ myGroups, setMyGroups, activeGroup, setActiveGroup,
         {screen === 'browse' && (
           <div className="animate-fade-in">
             <h1 className="text-xl font-extrabold mb-4">🔍 Browse Groups</h1>
-            <input className="w-full px-3 py-2.5 rounded-md text-sm mb-3" style={inputStyle} placeholder="Search groups..."
-              onChange={e => {
-                const q = e.target.value.toLowerCase()
-                if (!q) loadBrowse()
-                else setAllGroups(prev => prev.filter(g => (g.name || '').toLowerCase().includes(q)))
-              }} />
-            {allGroups.length === 0 ? (
+            <input className="w-full px-3 py-2.5 rounded-md text-sm mb-3" style={inputStyle} placeholder="Start typing to filter groups..."
+              value={browseSearch} onChange={e => setBrowseSearch(e.target.value)} />
+            {(() => {
+              const q = browseSearch.toLowerCase()
+              const filtered = q ? allGroups.filter(g => (g.name || '').toLowerCase().includes(q) || (g.type || '').toLowerCase().includes(q)) : allGroups
+              return filtered.length === 0 ? (
               <div className="text-center py-12">
                 <div className="text-5xl mb-3">🔍</div>
                 <h3 className="text-base font-bold">No groups found</h3>
@@ -345,7 +359,8 @@ export function GroupsView({ myGroups, setMyGroups, activeGroup, setActiveGroup,
                   </div>
                 </div>
               )
-            })}
+            })
+            })()}
           </div>
         )}
       </div>

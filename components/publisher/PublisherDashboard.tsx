@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react'
 import { useAuth } from '@/lib/contexts/AuthContext'
 import { useToast } from '@/lib/contexts/ThemeContext'
 import * as DB from '@/lib/db'
-import { SUBJECTS, YEAR_LEVELS, DEFAULT_TEMPLATES, genId } from '@/lib/constants'
+import { SUBJECTS, YEAR_LEVELS, COUNTRIES, SUBJECT_TOPICS, DEFAULT_TEMPLATES, genId } from '@/lib/constants'
 import { useModal } from '@/lib/contexts/ThemeContext'
 import { PackageEditor } from './PackageEditor'
 import { PdfExport } from './PdfExport'
@@ -24,6 +24,8 @@ export function PublisherDashboard({ onSwitchView, onLogout }: PublisherDashboar
   const [editingPkg, setEditingPkg] = useState<any>(null)
   const [analyticsData, setAnalyticsData] = useState<any[] | null>(null)
   const [showTemplates, setShowTemplates] = useState(false)
+  const [showAiForm, setShowAiForm] = useState(false)
+  const [aiForm, setAiForm] = useState({ subject: '', yearLevel: '', country: 'AU', topic: '', difficulty: 'standard', numFacts: '30', selectedTopics: [] as string[], customTopic: '', additionalNotes: '' })
   const [bulkEmails, setBulkEmails] = useState('')
 
   useEffect(() => {
@@ -39,20 +41,25 @@ export function PublisherDashboard({ onSwitchView, onLogout }: PublisherDashboar
     return (p.name || '').toLowerCase().includes(q) || (p.subject || '').toLowerCase().includes(q)
   })
 
-  const createNew = async (template?: any) => {
+  const createNew = async (template?: any, openEditor = false) => {
     if (!user) return
     const t = template || {}
     const pkg = {
       id: genId(), name: t.name || 'New Course', subject: t.subject || '', yearLevel: t.yearLevel || '',
-      description: t.description || '',
+      description: t.description || '', country: t.country || '',
       status: 'draft', autoResearch: t.autoResearch || false, authorId: user.id, authorName: user.name,
       createdAt: Date.now(), updatedAt: Date.now(),
       content: [], facts: [], categories: [], testPatterns: null,
-      collaborators: [],
+      collaborators: [], difficulty: t.difficulty || '', topic: t.topic || '',
     }
     await DB.savePackage(pkg)
     setPackages(prev => [pkg, ...prev])
-    toast('New course created — edit it to add content', 'success')
+    if (openEditor) {
+      setEditingPkg(pkg)
+      setScreen('editor')
+    } else {
+      toast('New course created — edit it to add content', 'success')
+    }
   }
 
   const togglePublish = async (pkg: any) => {
@@ -226,63 +233,198 @@ export function PublisherDashboard({ onSwitchView, onLogout }: PublisherDashboar
           />
         )}
 
-        {/* TEMPLATE PICKER OVERLAY */}
-        {showTemplates && (
+        {/* TEMPLATE PICKER OVERLAY — simplified to Blank + AI */}
+        {showTemplates && !showAiForm && (
           <div className="fixed inset-0 z-[9990] flex items-center justify-center p-5" style={{ background: 'rgba(0,0,0,.7)' }} onClick={() => setShowTemplates(false)}>
-            <div className="w-full max-w-lg p-6 rounded-xl animate-fade-in max-h-[90vh] overflow-y-auto" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }} onClick={e => e.stopPropagation()}>
+            <div className="w-full max-w-md p-6 rounded-xl animate-fade-in" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }} onClick={e => e.stopPropagation()}>
               <div className="flex justify-between items-center mb-4">
                 <h2 className="text-lg font-extrabold">Create New Package</h2>
                 <button className="text-lg" style={{ color: 'var(--text-muted)' }} onClick={() => setShowTemplates(false)}>✕</button>
               </div>
-              <p className="text-sm mb-4" style={{ color: 'var(--text-secondary)' }}>Start from a template or create from scratch:</p>
-              <div className="grid grid-cols-2 gap-2">
-                <div className="p-4 rounded-xl text-center cursor-pointer transition-all hover:scale-[1.02]" style={{ background: 'var(--bg)', border: '1px solid var(--border)' }}
-                  onClick={() => { setShowTemplates(false); createNew({ name: '' }) }}>
-                  <div className="text-3xl">📄</div>
-                  <div className="text-sm font-bold mt-1">Blank</div>
-                  <div className="text-[10px]" style={{ color: 'var(--text-muted)' }}>Start from scratch</div>
+              <p className="text-sm mb-4" style={{ color: 'var(--text-secondary)' }}>How would you like to start?</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="p-5 rounded-xl text-center cursor-pointer transition-all hover:scale-[1.02]" style={{ background: 'var(--bg)', border: '2px solid var(--border)' }}
+                  onClick={() => { setShowTemplates(false); createNew({ name: '' }, true) }}>
+                  <div className="text-4xl mb-2">📄</div>
+                  <div className="text-sm font-bold">Blank</div>
+                  <div className="text-[11px] mt-1" style={{ color: 'var(--text-muted)' }}>Start from scratch — add your own content</div>
                 </div>
-                {DEFAULT_TEMPLATES.filter(t => t.id !== 'blank').map(t => (
-                  <div key={t.id} className="p-4 rounded-xl text-center cursor-pointer transition-all hover:scale-[1.02]" style={{ background: 'var(--bg)', border: '1px solid var(--border)' }}
-                    onClick={() => { setShowTemplates(false); createNew(t) }}>
-                    <div className="text-3xl">{t.icon}</div>
-                    <div className="text-sm font-bold mt-1">{t.name}</div>
-                    <div className="text-[10px]" style={{ color: 'var(--text-muted)' }}>{(t.description || t.subject || 'Template').slice(0, 40)}</div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Bulk Invite Section */}
-              <div className="mt-5 pt-4 border-t" style={{ borderColor: 'var(--border)' }}>
-                <h3 className="text-sm font-bold mb-2">📧 Bulk Invite Students</h3>
-                <p className="text-xs mb-2" style={{ color: 'var(--text-muted)' }}>Paste emails (one per line or comma-separated) to generate invite links:</p>
-                <textarea
-                  className="w-full px-3 py-2 rounded-md text-xs"
-                  style={{ background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text)', minHeight: 60 }}
-                  value={bulkEmails}
-                  onChange={e => setBulkEmails(e.target.value)}
-                  placeholder={'student1@email.com\nstudent2@email.com\nstudent3@email.com'}
-                />
-                <div className="flex gap-1.5 mt-2">
-                  <button className="px-3 py-1.5 rounded-lg text-[11px]" style={{ background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text-secondary)' }}
-                    onClick={() => {
-                      const emails = bulkEmails.split(/[,\n]/).map(e => e.trim()).filter(e => e.includes('@'))
-                      if (emails.length === 0) { toast('No valid emails found', 'error'); return }
-                      const link = window.location.href.split('?')[0]
-                      const text = `You're invited to StudyFlow!\n\nSign up here: ${link}\n\nCreate an account as a Student to access learning courses.\n\nInvited emails:\n${emails.join('\n')}`
-                      navigator.clipboard.writeText(text).then(() => toast(`Invite text copied for ${emails.length} students!`, 'success')).catch(() => toast('Invite text ready — check console', 'info'))
-                    }}>📋 Copy Invite Text</button>
-                  <button className="px-3 py-1.5 rounded-lg text-[11px]" style={{ background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text-secondary)' }}
-                    onClick={() => {
-                      const emails = bulkEmails.split(/[,\n]/).map(e => e.trim()).filter(e => e.includes('@'))
-                      if (emails.length === 0) return
-                      exportToCSV(emails.map(e => ({ email: e, role: 'learner', invite_link: window.location.href.split('?')[0] })), 'studyflow-invites.csv')
-                    }}>📥 Export as CSV</button>
+                <div className="p-5 rounded-xl text-center cursor-pointer transition-all hover:scale-[1.02]" style={{ background: 'var(--bg)', border: '2px solid rgba(108,92,231,.3)' }}
+                  onClick={() => { setShowAiForm(true) }}>
+                  <div className="text-4xl mb-2">🤖</div>
+                  <div className="text-sm font-bold">AI Generated</div>
+                  <div className="text-[11px] mt-1" style={{ color: 'var(--text-muted)' }}>Tell us the subject and we'll create content</div>
                 </div>
               </div>
             </div>
           </div>
         )}
+
+        {/* AI GENERATION FORM — dynamic, subject-aware */}
+        {showTemplates && showAiForm && (() => {
+          const subjectTopics = SUBJECT_TOPICS[aiForm.subject]
+          const toggleTopic = (t: string) => setAiForm(f => ({ ...f, selectedTopics: f.selectedTopics.includes(t) ? f.selectedTopics.filter(x => x !== t) : [...f.selectedTopics, t] }))
+          const selStyle = { background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text)' }
+          return (
+          <div className="fixed inset-0 z-[9990] flex items-center justify-center p-5" style={{ background: 'rgba(0,0,0,.7)' }} onClick={() => { setShowAiForm(false); setShowTemplates(false) }}>
+            <div className="w-full max-w-lg p-6 rounded-xl animate-fade-in max-h-[90vh] overflow-y-auto" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }} onClick={e => e.stopPropagation()}>
+              <div className="flex justify-between items-center mb-1">
+                <h2 className="text-lg font-extrabold">🤖 AI Course Generator</h2>
+                <button className="text-lg" style={{ color: 'var(--text-muted)' }} onClick={() => { setShowAiForm(false); setShowTemplates(false) }}>✕</button>
+              </div>
+              <p className="text-sm mb-4" style={{ color: 'var(--text-secondary)' }}>The more detail you provide, the better the AI-generated content will be</p>
+
+              {/* Row 1: Subject + Year Level */}
+              <div className="flex gap-3 mb-3">
+                <div className="flex-1">
+                  <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>Subject *</label>
+                  <select className="w-full px-3 py-2.5 rounded-md text-sm appearance-none" style={selStyle}
+                    value={aiForm.subject} onChange={e => setAiForm(f => ({ ...f, subject: e.target.value, selectedTopics: [], customTopic: '' }))}>
+                    <option value="">Select subject...</option>
+                    {SUBJECTS.map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </div>
+                <div className="flex-1">
+                  <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>Year Level *</label>
+                  <select className="w-full px-3 py-2.5 rounded-md text-sm appearance-none" style={selStyle}
+                    value={aiForm.yearLevel} onChange={e => setAiForm(f => ({ ...f, yearLevel: e.target.value }))}>
+                    <option value="">Select year level...</option>
+                    {YEAR_LEVELS.map(y => <option key={y} value={y}>{y}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              {/* Dynamic topics for selected subject */}
+              {aiForm.subject && subjectTopics && (
+                <div className="mb-3 animate-fade-in">
+                  <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>{subjectTopics.label} — select topics to include</label>
+                  <div className="flex flex-wrap gap-1.5 p-3 rounded-lg max-h-[160px] overflow-y-auto" style={{ background: 'var(--bg)', border: '1px solid var(--border)' }}>
+                    {subjectTopics.topics.map(t => {
+                      const sel = aiForm.selectedTopics.includes(t)
+                      return (
+                        <button key={t} className="px-2.5 py-1 rounded-full text-[11px] transition-all" style={{
+                          background: sel ? 'var(--primary)' : 'var(--bg-card)',
+                          color: sel ? 'white' : 'var(--text-muted)',
+                          border: sel ? '1px solid var(--primary)' : '1px solid var(--border)',
+                        }} onClick={() => toggleTopic(t)}>{sel ? '✓ ' : ''}{t}</button>
+                      )
+                    })}
+                  </div>
+                  {aiForm.selectedTopics.length > 0 && (
+                    <div className="flex justify-between items-center mt-1">
+                      <p className="text-[10px]" style={{ color: 'var(--primary)' }}>{aiForm.selectedTopics.length} topic{aiForm.selectedTopics.length !== 1 ? 's' : ''} selected</p>
+                      <button className="text-[10px]" style={{ color: 'var(--text-muted)' }} onClick={() => setAiForm(f => ({ ...f, selectedTopics: [] }))}>Clear all</button>
+                    </div>
+                  )}
+                  {aiForm.selectedTopics.length === 0 && (
+                    <p className="text-[10px] mt-1" style={{ color: 'var(--text-muted)' }}>No topics selected = AI covers the full subject. Select specific topics to narrow the focus.</p>
+                  )}
+                </div>
+              )}
+
+              {/* Custom topic for Other or additional specificity */}
+              {aiForm.subject && (
+                <div className="mb-3 animate-fade-in">
+                  <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>
+                    {!subjectTopics ? 'Describe the topic *' : 'Additional focus or specific topic'}
+                  </label>
+                  <input className="w-full px-3 py-2.5 rounded-md text-sm" style={selStyle}
+                    value={aiForm.customTopic} onChange={e => setAiForm(f => ({ ...f, customTopic: e.target.value }))}
+                    placeholder={!subjectTopics ? 'e.g. Describe what the course should cover...' : 'e.g. Focus on Term 2 content, or a specific chapter...'} />
+                </div>
+              )}
+
+              {/* Country / Curriculum */}
+              <div className="mb-3">
+                <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>Country / Curriculum</label>
+                <select className="w-full px-3 py-2.5 rounded-md text-sm appearance-none" style={selStyle}
+                  value={aiForm.country} onChange={e => setAiForm(f => ({ ...f, country: e.target.value }))}>
+                  <option value="">Not specified</option>
+                  {COUNTRIES.map(c => <option key={c.code} value={c.code}>{c.name}{c.curriculum ? ` — ${c.curriculum}` : ''}</option>)}
+                </select>
+                <p className="text-[10px] mt-0.5" style={{ color: 'var(--text-muted)' }}>Ensures content aligns with your country's curriculum standards</p>
+              </div>
+
+              {/* Row: Difficulty + Content amount */}
+              <div className="flex gap-3 mb-3">
+                <div className="flex-1">
+                  <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>Difficulty</label>
+                  <select className="w-full px-3 py-2.5 rounded-md text-sm appearance-none" style={selStyle}
+                    value={aiForm.difficulty} onChange={e => setAiForm(f => ({ ...f, difficulty: e.target.value }))}>
+                    <option value="foundation">Foundation — simplified concepts</option>
+                    <option value="standard">Standard — grade-level content</option>
+                    <option value="advanced">Advanced — challenging</option>
+                    <option value="extension">Extension / Gifted</option>
+                  </select>
+                </div>
+                <div className="flex-1">
+                  <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>Content Amount</label>
+                  <select className="w-full px-3 py-2.5 rounded-md text-sm appearance-none" style={selStyle}
+                    value={aiForm.numFacts} onChange={e => setAiForm(f => ({ ...f, numFacts: e.target.value }))}>
+                    <option value="15">Quick (15 facts)</option>
+                    <option value="30">Standard (30 facts)</option>
+                    <option value="50">Comprehensive (50 facts)</option>
+                    <option value="80">Deep Dive (80+ facts)</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Additional notes */}
+              <div className="mb-4">
+                <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-secondary)' }}>Additional Instructions</label>
+                <textarea className="w-full px-3 py-2 rounded-md text-sm min-h-[60px]" style={selStyle}
+                  value={aiForm.additionalNotes} onChange={e => setAiForm(f => ({ ...f, additionalNotes: e.target.value }))}
+                  placeholder="Any extra details? e.g. 'Focus on exam prep', 'Include real-world examples', 'Keep language simple for ESL students'..." />
+              </div>
+
+              {/* Generate button */}
+              <div className="flex gap-2">
+                <button className="px-3 py-2 rounded-lg text-sm" style={{ background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text-secondary)' }}
+                  onClick={() => setShowAiForm(false)}>← Back</button>
+                <button className="flex-1 px-4 py-2.5 rounded-lg text-sm font-bold text-white" style={{ background: 'var(--primary)', opacity: (!aiForm.subject || !aiForm.yearLevel) ? 0.5 : 1 }}
+                  disabled={!aiForm.subject || !aiForm.yearLevel}
+                  onClick={() => {
+                    const countryObj = COUNTRIES.find(c => c.code === aiForm.country)
+                    const countryName = countryObj?.name || ''
+                    const curriculumName = countryObj?.curriculum || ''
+                    const topicsList = aiForm.selectedTopics.length > 0 ? aiForm.selectedTopics.join(', ') : ''
+                    const topicPart = topicsList || aiForm.customTopic || ''
+                    const shortTopic = topicPart.length > 40 ? topicPart.slice(0, 40) + '...' : topicPart
+                    const name = `${aiForm.subject} ${aiForm.yearLevel}${shortTopic ? ` — ${shortTopic}` : ''}`
+                    const descParts: string[] = []
+                    if (countryName && aiForm.country !== 'OTHER') descParts.push(`${aiForm.subject} for ${countryName} ${aiForm.yearLevel} students`)
+                    else descParts.push(`${aiForm.subject} for ${aiForm.yearLevel} students`)
+                    if (curriculumName) descParts.push(`Aligned to ${curriculumName}`)
+                    if (topicsList) descParts.push(`Topics: ${topicsList}`)
+                    if (aiForm.customTopic) descParts.push(`Focus: ${aiForm.customTopic}`)
+                    if (aiForm.difficulty !== 'standard') descParts.push(`Difficulty: ${aiForm.difficulty}`)
+                    if (aiForm.additionalNotes) descParts.push(`Notes: ${aiForm.additionalNotes}`)
+
+                    setShowTemplates(false)
+                    setShowAiForm(false)
+                    createNew({
+                      name,
+                      subject: aiForm.subject,
+                      yearLevel: aiForm.yearLevel,
+                      description: descParts.join('. '),
+                      autoResearch: true,
+                      country: aiForm.country,
+                      topic: topicPart,
+                      selectedTopics: aiForm.selectedTopics,
+                      customTopic: aiForm.customTopic,
+                      difficulty: aiForm.difficulty,
+                      numFacts: parseInt(aiForm.numFacts),
+                      additionalNotes: aiForm.additionalNotes,
+                    }, true)
+                    setAiForm({ subject: '', yearLevel: '', country: 'AU', topic: '', difficulty: 'standard', numFacts: '30', selectedTopics: [], customTopic: '', additionalNotes: '' })
+                  }}>
+                  🤖 Generate Course
+                </button>
+              </div>
+            </div>
+          </div>
+          )
+        })()}
       </div>
     </div>
   )

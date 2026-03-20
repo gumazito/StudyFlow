@@ -34,12 +34,27 @@ export function AbnLookup({ value, onChange, onResult, inputStyle }: AbnLookupPr
     return `${digits.slice(0, 2)} ${digits.slice(2, 5)} ${digits.slice(5, 8)} ${digits.slice(8)}`
   }
 
+  const nameSearchTimer = { current: null as any }
+
   const handleChange = (raw: string) => {
     const formatted = formatAbn(raw)
     onChange(formatted)
     setResult(null)
     setNameResults([])
     setError('')
+    // Auto-lookup when 11 digits entered
+    const digits = raw.replace(/\D/g, '')
+    if (digits.length === 11) {
+      setTimeout(() => doAbnLookup(), 100)
+    }
+  }
+
+  const handleNameChange = (val: string) => {
+    setNameQuery(val)
+    setError('')
+    if (nameSearchTimer.current) clearTimeout(nameSearchTimer.current)
+    if (val.trim().length < 2) { setNameResults([]); return }
+    nameSearchTimer.current = setTimeout(() => doNameSearch(val), 400)
   }
 
   const doAbnLookup = async () => {
@@ -67,17 +82,15 @@ export function AbnLookup({ value, onChange, onResult, inputStyle }: AbnLookupPr
     }
   }
 
-  const doNameSearch = async () => {
-    if (nameQuery.trim().length < 2) {
-      setError('Enter at least 2 characters')
-      return
-    }
+  const doNameSearch = async (query?: string) => {
+    const q = (query ?? nameQuery).trim()
+    if (q.length < 2) return
 
     setLooking(true)
     setError('')
     setNameResults([])
     try {
-      const data = await searchAbnByName(nameQuery.trim())
+      const data = await searchAbnByName(q)
       if (data.results && data.results.length > 0) {
         setNameResults(data.results)
       } else {
@@ -125,48 +138,30 @@ export function AbnLookup({ value, onChange, onResult, inputStyle }: AbnLookupPr
       </div>
 
       {mode === 'abn' ? (
-        <div className="flex gap-2">
+        <div>
           <input
-            className="flex-1 px-3 py-2 rounded-md text-sm"
+            className="w-full px-3 py-2 rounded-md text-sm"
             style={inputStyle}
             value={value}
             onChange={e => handleChange(e.target.value)}
             placeholder="XX XXX XXX XXX"
             maxLength={14}
           />
-          <button
-            onClick={doAbnLookup}
-            disabled={looking || value.replace(/\D/g, '').length !== 11}
-            className="px-3 py-2 rounded-md text-xs font-semibold text-white whitespace-nowrap"
-            style={{
-              background: looking ? 'var(--text-muted)' : 'var(--primary)',
-              opacity: value.replace(/\D/g, '').length !== 11 ? 0.5 : 1,
-            }}
-          >
-            {looking ? '...' : '🔍 Lookup'}
-          </button>
+          {looking && <p className="text-[10px] mt-1" style={{ color: 'var(--text-muted)' }}>Looking up ABN...</p>}
+          {value.replace(/\D/g, '').length > 0 && value.replace(/\D/g, '').length < 11 && (
+            <p className="text-[10px] mt-1" style={{ color: 'var(--text-muted)' }}>{11 - value.replace(/\D/g, '').length} digits remaining</p>
+          )}
         </div>
       ) : (
-        <div className="flex gap-2">
+        <div>
           <input
-            className="flex-1 px-3 py-2 rounded-md text-sm"
+            className="w-full px-3 py-2 rounded-md text-sm"
             style={inputStyle}
             value={nameQuery}
-            onChange={e => { setNameQuery(e.target.value); setError('') }}
-            placeholder="Company or business name..."
-            onKeyDown={e => { if (e.key === 'Enter') doNameSearch() }}
+            onChange={e => handleNameChange(e.target.value)}
+            placeholder="Start typing company or business name..."
           />
-          <button
-            onClick={doNameSearch}
-            disabled={looking || nameQuery.trim().length < 2}
-            className="px-3 py-2 rounded-md text-xs font-semibold text-white whitespace-nowrap"
-            style={{
-              background: looking ? 'var(--text-muted)' : 'var(--primary)',
-              opacity: nameQuery.trim().length < 2 ? 0.5 : 1,
-            }}
-          >
-            {looking ? '...' : '🔍 Search'}
-          </button>
+          {looking && <p className="text-[10px] mt-1" style={{ color: 'var(--text-muted)' }}>Searching...</p>}
         </div>
       )}
 

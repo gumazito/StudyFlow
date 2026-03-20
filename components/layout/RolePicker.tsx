@@ -109,20 +109,24 @@ export function RolePicker() {
 
   return (
     <div className="min-h-screen" style={{ background: 'var(--bg)' }}>
-      {/* Nav */}
+      {/* Nav — Profile, logo, theme toggle, logout */}
       <nav className="flex items-center justify-between px-4 py-2.5 border-b" style={{ borderColor: 'var(--border)', background: 'rgba(10,10,15,.92)' }}>
-        <div />
+        <button onClick={() => setActiveView('profile')} className="text-xs px-2.5 py-1.5 rounded-lg flex items-center gap-1" style={{ color: 'var(--text-secondary)' }}>
+          ⚙️ Profile
+        </button>
         <h1 className="text-lg font-extrabold" style={{
           background: 'linear-gradient(135deg, #a29bfe, #00cec9)',
           WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent'
         }}>StudyFlow</h1>
         <div className="flex items-center gap-2">
-          <span className="text-sm" style={{ color: 'var(--text-muted)' }}>{user.name}</span>
-          <button onClick={logout} className="text-xs px-2.5 py-1.5 rounded" style={{ color: 'var(--text-secondary)' }}>Logout</button>
+          <button onClick={toggle} className="text-xs px-2 py-1.5 rounded-lg" style={{ color: 'var(--text-secondary)' }}>
+            {dark ? '☀️' : '🌙'}
+          </button>
+          <button onClick={logout} className="text-xs px-2.5 py-1.5 rounded-lg" style={{ color: 'var(--text-secondary)' }}>Logout</button>
         </div>
       </nav>
 
-      <div className="max-w-md mx-auto px-5 pt-8 animate-fade-in">
+      <div className="max-w-md mx-auto px-5 pt-8 pb-8 animate-fade-in">
         <h1 className="text-2xl font-extrabold mb-1 text-center">Welcome, {user.name}!</h1>
         <p className="text-sm mb-6 text-center" style={{ color: 'var(--text-secondary)' }}>Choose a space to get started</p>
 
@@ -178,30 +182,32 @@ export function RolePicker() {
 
         {/* Groups Section */}
         <div className="mb-4">
-          <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-bold">👥 My Groups</h2>
-            <button
-              className="text-[10px] font-semibold px-2.5 py-1 rounded-lg"
-              style={{ background: 'var(--primary)', color: 'white' }}
-              onClick={() => setActiveView('groups')}
-            >
-              Browse / Join
-            </button>
+            <div className="flex gap-1.5">
+              <button
+                className="text-[10px] font-semibold px-2.5 py-1 rounded-lg"
+                style={{ background: 'var(--primary)', color: 'white' }}
+                onClick={() => setActiveView('groups')}
+              >
+                + Create Group
+              </button>
+              <button
+                className="text-[10px] font-semibold px-2.5 py-1 rounded-lg"
+                style={{ background: 'var(--accent)', color: 'white' }}
+                onClick={() => setActiveView('groups')}
+              >
+                🔍 Find Groups
+              </button>
+            </div>
           </div>
 
           {otherGroups.length === 0 ? (
             <div className="p-4 rounded-xl text-center" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
-              <div className="text-2xl mb-2">🔗</div>
+              <div className="text-2xl mb-2">👥</div>
               <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                No groups yet. Join a school, class, or study group to collaborate with others.
+                No groups yet. Create a new group or find one to join.
               </p>
-              <button
-                className="mt-2 px-4 py-1.5 rounded-lg text-xs font-semibold text-white"
-                style={{ background: 'var(--accent)' }}
-                onClick={() => setActiveView('groups')}
-              >
-                Find Groups
-              </button>
             </div>
           ) : (
             <div className="space-y-2">
@@ -249,19 +255,6 @@ export function RolePicker() {
               })}
             </div>
           )}
-        </div>
-
-        {/* Footer buttons */}
-        <div className="pt-3 pb-8 border-t flex gap-2 justify-center" style={{ borderColor: 'var(--border)' }}>
-          <button className="px-4 py-2 rounded-lg text-xs" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--text-secondary)' }} onClick={() => setActiveView('profile')}>
-            ⚙️ Profile
-          </button>
-          <button className="px-4 py-2 rounded-lg text-xs" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--text-secondary)' }} onClick={() => setActiveView('groups')}>
-            🏫 Groups
-          </button>
-          <button className="px-4 py-2 rounded-lg text-xs" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--text-secondary)' }} onClick={toggle}>
-            {dark ? '☀️ Light' : '🌙 Dark'}
-          </button>
         </div>
       </div>
     </div>

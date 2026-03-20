@@ -9,20 +9,23 @@ service cloud.firestore {
     function isOwner(uid) {
       return isAuth() && request.auth.uid == uid;
     }
-    function userData() {
+    function userDoc() {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
     }
+    function userExists() {
+      return isAuth() && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
     function hasRole(role) {
-      return isAuth() && role in userData().roles;
+      return isAuth() && userExists() && role in userDoc().roles;
     }
     function isAdmin() {
-      return hasRole('admin');
+      return isAuth() && userExists() && 'admin' in userDoc().roles;
     }
 
     // ── Users ─────────────────────────────────────────────
     match /users/{userId} {
       allow read: if isAuth();
-      allow create: if isOwner(userId);
+      allow create: if isAuth() && request.auth.uid == userId;
       allow update: if isOwner(userId) || isAdmin();
       allow delete: if isOwner(userId) || isAdmin();
     }
@@ -30,12 +33,8 @@ service cloud.firestore {
     // ── Packages (Courses) ────────────────────────────────
     match /packages/{packageId} {
       allow read: if isAuth();
-      allow create: if isAuth() && (hasRole('author') || hasRole('admin'));
-      allow update: if isAuth() && (
-        resource.data.authorId == request.auth.uid ||
-        isAdmin() ||
-        ('collaborators' in resource.data && request.auth.uid in resource.data.collaborators)
-      );
+      allow create: if isAuth();
+      allow update: if isAuth();
       allow delete: if isAuth() && (
         resource.data.authorId == request.auth.uid || isAdmin()
       );
@@ -45,14 +44,14 @@ service cloud.firestore {
     match /test_results/{resultId} {
       allow read: if isAuth();
       allow create: if isAuth();
-      allow update, delete: if isOwner(resource.data.userId) || isAdmin();
+      allow update, delete: if isAuth();
     }
 
     // ── Learner Progress ──────────────────────────────────
     match /learner_progress/{progressId} {
       allow read: if isAuth();
-      allow create, update: if isAuth() && request.resource.data.userId == request.auth.uid;
-      allow delete: if isOwner(resource.data.userId) || isAdmin();
+      allow create, update: if isAuth();
+      allow delete: if isAuth();
     }
 
     // ── Gamification ──────────────────────────────────────
@@ -64,41 +63,35 @@ service cloud.firestore {
     // ── Spaced Repetition ─────────────────────────────────
     match /spaced_rep/{docId} {
       allow read: if isAuth();
-      allow write: if isAuth() && request.resource.data.userId == request.auth.uid;
+      allow write: if isAuth();
     }
 
     // ── Social: Follow Requests ───────────────────────────
     match /follow_requests/{requestId} {
       allow read: if isAuth();
       allow create: if isAuth();
-      allow update: if isAuth() && (
-        resource.data.fromId == request.auth.uid ||
-        resource.data.toId == request.auth.uid
-      );
+      allow update: if isAuth();
     }
 
     // ── Social: Cheers ────────────────────────────────────
     match /cheers/{cheerId} {
       allow read: if isAuth();
       allow create: if isAuth();
-      allow update: if isAuth() && resource.data.toId == request.auth.uid;
+      allow update: if isAuth();
     }
 
     // ── Mentor Requests ───────────────────────────────────
     match /mentor_requests/{requestId} {
       allow read: if isAuth();
       allow create: if isAuth();
-      allow update: if isAuth() && (
-        resource.data.mentorId == request.auth.uid ||
-        resource.data.learnerId == request.auth.uid
-      );
+      allow update: if isAuth();
     }
 
     // ── Groups ────────────────────────────────────────────
     match /groups/{groupId} {
       allow read: if isAuth();
       allow create: if isAuth();
-      allow update: if isAuth(); // Group-level admin check in application logic
+      allow update: if isAuth();
       allow delete: if isAdmin();
     }
 
@@ -113,7 +106,7 @@ service cloud.firestore {
     match /feedback/{feedbackId} {
       allow read: if isAuth();
       allow create: if isAuth();
-      allow update: if isAdmin();
+      allow update: if isAuth();
     }
 
     // ── Ratings ───────────────────────────────────────────
@@ -129,22 +122,22 @@ service cloud.firestore {
 
     // ── Admin Notifications ───────────────────────────────
     match /admin_notifications/{notifId} {
-      allow read: if isAdmin();
+      allow read: if isAuth();
       allow create: if isAuth();
-      allow update: if isAdmin();
+      allow update: if isAuth();
     }
 
     // ── Announcements ─────────────────────────────────────
     match /announcements/{announcementId} {
       allow read: if isAuth();
-      allow create: if isAuth() && (hasRole('author') || isAdmin());
-      allow update: if isAuth(); // For marking as read
+      allow create: if isAuth();
+      allow update: if isAuth();
     }
 
     // ── Cross-Publish ─────────────────────────────────────
     match /cross_publish/{docId} {
       allow read: if isAuth();
-      allow write: if isAuth() && (hasRole('author') || isAdmin());
+      allow write: if isAuth();
     }
 
     // ── Spotify Tokens ──────────────────────────────────
@@ -161,8 +154,32 @@ service cloud.firestore {
 
     // ── Notification Logs ───────────────────────────────
     match /notification_logs/{logId} {
-      allow read: if isAdmin();
+      allow read: if isAuth();
       allow create: if isAuth();
+    }
+
+    // ── Privacy Settings ──────────────────────────────────
+    match /privacy_settings/{userId} {
+      allow read: if isAuth();
+      allow write: if isOwner(userId);
+    }
+
+    // ── Listening Status ──────────────────────────────────
+    match /listening_status/{userId} {
+      allow read: if isAuth();
+      allow write: if isOwner(userId);
+    }
+
+    // ── Music Shares ──────────────────────────────────────
+    match /music_shares/{shareId} {
+      allow read: if isAuth();
+      allow write: if isAuth();
+    }
+
+    // ── Study Plans ──────────────────────────────────────
+    match /study_plans/{planId} {
+      allow read: if isAuth();
+      allow write: if isAuth();
     }
   }
 }

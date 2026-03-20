@@ -44,10 +44,19 @@ export function MentorDashboard({ onSwitchView, onLogout }: MentorDashboardProps
     setLoading(false)
   }
 
-  const searchForLearner = async () => {
-    if (!searchQuery.trim()) return
-    const results = await DB.searchUsers(searchQuery.trim())
+  // Live search with debounce
+  const searchTimerRef = { current: null as any }
+  const searchForLearner = async (query?: string) => {
+    const q = (query ?? searchQuery).trim()
+    if (!q || q.length < 2) { setSearchResults([]); return }
+    const results = await DB.searchUsers(q)
     setSearchResults((results as any[]).filter(u => u.uid !== user?.id))
+  }
+
+  const handleSearchChange = (value: string) => {
+    setSearchQuery(value)
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
+    searchTimerRef.current = setTimeout(() => searchForLearner(value), 300)
   }
 
   const requestMentee = async (learner: any) => {
@@ -81,9 +90,7 @@ export function MentorDashboard({ onSwitchView, onLogout }: MentorDashboardProps
           <h3 className="text-sm font-bold mb-2">Add a Learner</h3>
           <div className="flex gap-2">
             <input className="flex-1 px-3 py-2 rounded-md text-sm" style={{ background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text)' }}
-              value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Search by name or email..."
-              onKeyDown={e => { if (e.key === 'Enter') searchForLearner() }} />
-            <button className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white" style={{ background: 'var(--primary)' }} onClick={searchForLearner}>Search</button>
+              value={searchQuery} onChange={e => handleSearchChange(e.target.value)} placeholder="Start typing to search learners..." />
           </div>
           {searchResults.map(u => (
             <div key={u.uid} className="flex justify-between items-center py-2 border-b" style={{ borderColor: 'var(--border)' }}>

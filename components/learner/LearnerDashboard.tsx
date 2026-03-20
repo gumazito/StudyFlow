@@ -523,12 +523,17 @@ export function LearnerDashboard({ onSwitchView, onLogout }: LearnerDashboardPro
             {/* Search */}
             <div className="p-3.5 mb-4 rounded-xl" style={cs}>
               <h3 className="text-sm font-bold mb-2">Find Learners</h3>
-              <div className="flex gap-2">
-                <input className="flex-1 px-3 py-2 rounded-md text-sm" style={is} value={followSearch} onChange={e => setFollowSearch(e.target.value)} placeholder="Search by name or email..."
-                  onKeyDown={async e => { if (e.key === 'Enter') { const r = await DB.searchUsers(followSearch); setFollowSearchResults((r as any[]).filter(u => u.uid !== user?.id)) } }} />
-                <button className="px-3 py-1.5 rounded-lg text-xs text-white" style={{ background: 'var(--primary)' }}
-                  onClick={async () => { const r = await DB.searchUsers(followSearch); setFollowSearchResults((r as any[]).filter(u => u.uid !== user?.id)) }}>Search</button>
-              </div>
+              <input className="w-full px-3 py-2 rounded-md text-sm" style={is} value={followSearch}
+                onChange={e => {
+                  const q = e.target.value
+                  setFollowSearch(q)
+                  if (q.trim().length < 2) { setFollowSearchResults([]); return }
+                  clearTimeout((window as any).__followSearchTimer)
+                  ;(window as any).__followSearchTimer = setTimeout(async () => {
+                    const r = await DB.searchUsers(q.trim())
+                    setFollowSearchResults((r as any[]).filter(u => u.uid !== user?.id))
+                  }, 300)
+                }} placeholder="Start typing to find learners..." />
               {followSearchResults.map(u => (
                 <div key={u.uid} className="flex justify-between items-center py-2 border-b" style={{ borderColor: 'var(--border)' }}>
                   <div><div className="font-semibold text-sm">{u.name}</div><div className="text-xs" style={{ color: 'var(--text-muted)' }}>{u.email}</div></div>
