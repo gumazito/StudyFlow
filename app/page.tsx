@@ -39,7 +39,7 @@ export default function Home() {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--bg)' }}>
         <div className="text-center max-w-md px-6">
-          <div className="text-5xl mb-4">\u23F3</div>
+          <div className="text-5xl mb-4">{"⏳"}</div>
           <h2 className="text-xl font-extrabold mb-2">Account Pending Approval</h2>
           <p className="text-sm mb-5" style={{ color: 'var(--text-secondary)' }}>
             Your account is waiting for admin approval. You will be able to log in once approved.
@@ -57,7 +57,7 @@ export default function Home() {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--bg)' }}>
         <div className="text-center max-w-md px-6">
-          <div className="text-5xl mb-4">\u274C</div>
+          <div className="text-5xl mb-4">{"❌"}</div>
           <h2 className="text-xl font-extrabold mb-2">Account Not Approved</h2>
           <p className="text-sm mb-5" style={{ color: 'var(--text-secondary)' }}>
             Please contact the administrator if you believe this is an error.

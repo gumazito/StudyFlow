@@ -144,11 +144,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const fbUser = result.user
     const docRef = doc(db, "users", fbUser.uid)
     const snap = await getDoc(docRef)
+    const emailLower = fbUser.email?.toLowerCase() || ''
+    const isSuperUser = SUPER_USER_EMAILS.includes(emailLower)
+    const isPremium = ALWAYS_PREMIUM_EMAILS.includes(emailLower)
+
     if (!snap.exists()) {
       // First time social login — create user record
-      const emailLower = fbUser.email?.toLowerCase() || ''
-      const isSuperUser = SUPER_USER_EMAILS.includes(emailLower)
-      const isPremium = ALWAYS_PREMIUM_EMAILS.includes(emailLower)
       const roles = isSuperUser ? ['learner', 'admin'] : ['learner']
       const status = isSuperUser ? 'approved' : 'pending'
 
@@ -170,6 +171,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           createdAt: Date.now(), read: false,
         })
       }
+
+      // Immediately set user state to avoid race condition with onAuthStateChanged
+      setUser({
+        id: fbUser.uid,
+        name: fbUser.displayName || fbUser.email || 'User',
+        email: fbUser.email!,
+        roles,
+        status,
+        isAdmin: isSuperUser,
+      })
+    } else {
+      // Existing user — re-read and apply super user logic
+      const profile = snap.data()
+      let roles = profile.roles || [profile.role || 'learner']
+      let status = profile.status || 'approved'
+      const isAdmin = isSuperUser || roles.includes('admin')
+
+      if (isSuperUser && (!roles.includes('admin') || status !== 'approved')) {
+        roles = [...new Set([...roles, 'admin'])]
+        status = 'approved'
+        await setDoc(docRef, { roles, status }, { merge: true })
+      }
+
+      if (isPremium && !profile.manualPremium) {
+        await setDoc(docRef, { manualPremium: true, premiumGrantedBy: 'system', premiumGrantedAt: Date.now() }, { merge: true })
+      }
+
+      setUser({
+        id: fbUser.uid,
+        name: profile.name || fbUser.displayName || fbUser.email!,
+        email: fbUser.email!,
+        roles,
+        status,
+        isAdmin,
+      })
     }
   }
 
