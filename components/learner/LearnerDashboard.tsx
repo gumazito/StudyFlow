@@ -28,7 +28,7 @@ export function LearnerDashboard({ onSwitchView, onLogout }: LearnerDashboardPro
   const { showPrompt } = useModal()
   const [packages, setPackages] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const [screen, setScreen] = useState<'browse' | 'progress' | 'social' | 'learn' | 'test-setup' | 'test' | 'detail' | 'naplan'>('browse')
+  const [screen, setScreen] = useState<'browse' | 'progress' | 'podcasts' | 'social' | 'learn' | 'test-setup' | 'test' | 'detail' | 'naplan'>('browse')
   const [search, setSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState('all')
   const [showAllYears, setShowAllYears] = useState(false)
@@ -53,7 +53,7 @@ export function LearnerDashboard({ onSwitchView, onLogout }: LearnerDashboardPro
   // Learn state
   const [learnIndex, setLearnIndex] = useState(0)
   const [flipped, setFlipped] = useState(false)
-  const [learnMode, setLearnMode] = useState<'swipe' | 'scroll' | 'tiktok' | 'podcast'>('swipe')
+  const [learnMode, setLearnMode] = useState<'swipe' | 'scroll' | 'tiktok' | 'podcast' | 'buddy'>('swipe')
   const [spacedRepMode, setSpacedRepMode] = useState(false)
   const [dueForReview, setDueForReview] = useState<string[]>([])
   const [shuffledFacts, setShuffledFacts] = useState<any[]>([])
@@ -316,7 +316,7 @@ export function LearnerDashboard({ onSwitchView, onLogout }: LearnerDashboardPro
 
       {/* Nav */}
       <nav className="flex items-center justify-between px-4 py-2.5 border-b" style={{ borderColor: 'var(--border)' }}>
-        {!['browse', 'progress', 'social'].includes(screen) ? (
+        {!['browse', 'progress', 'podcasts', 'social'].includes(screen) ? (
           <button className="text-sm" style={{ color: 'var(--text-secondary)' }} onClick={goHome}>← Back</button>
         ) : <div />}
         <div className="text-lg font-extrabold" style={{ background: 'linear-gradient(135deg, #a29bfe, #00cec9)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>StudyFlow</div>
@@ -329,7 +329,7 @@ export function LearnerDashboard({ onSwitchView, onLogout }: LearnerDashboardPro
       </nav>
 
       {/* Gamification bar */}
-      {['browse', 'progress', 'social'].includes(screen) && (
+      {['browse', 'progress', 'podcasts', 'social'].includes(screen) && (
         <div className="flex items-center gap-2.5 px-4 py-2 border-b text-xs" style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}>
           <span className="font-extrabold" style={{ color: 'var(--primary)' }}>Lv{gamData.level || 1}</span>
           <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--border)' }}>
@@ -391,10 +391,10 @@ export function LearnerDashboard({ onSwitchView, onLogout }: LearnerDashboardPro
       )}
 
       {/* Tab bar */}
-      {['browse', 'progress', 'social'].includes(screen) && (
-        <div className="flex border-b px-4" style={{ borderColor: 'var(--border)' }}>
-          {[{ id: 'browse', label: '📚 Courses' }, { id: 'progress', label: '📊 Progress' }, { id: 'social', label: '👥 Social' }].map(t => (
-            <button key={t.id} className="px-4 py-2 text-sm font-semibold border-b-2"
+      {['browse', 'progress', 'podcasts', 'social'].includes(screen) && (
+        <div className="flex border-b px-4 overflow-x-auto" style={{ borderColor: 'var(--border)' }}>
+          {[{ id: 'browse', label: '📚 Courses' }, { id: 'progress', label: '📊 Progress' }, { id: 'podcasts', label: '🎧 Podcasts' }, { id: 'social', label: '👥 Social' }].map(t => (
+            <button key={t.id} className="px-4 py-2 text-sm font-semibold border-b-2 whitespace-nowrap"
               style={{ borderColor: screen === t.id ? 'var(--primary)' : 'transparent', color: screen === t.id ? 'var(--text)' : 'var(--text-muted)' }}
               onClick={() => setScreen(t.id as any)}>{t.label}</button>
           ))}
@@ -406,15 +406,67 @@ export function LearnerDashboard({ onSwitchView, onLogout }: LearnerDashboardPro
         {/* ============ BROWSE ============ */}
         {screen === 'browse' && (
           <div className="animate-fade-in">
-            <input className="w-full px-3.5 py-2.5 rounded-md text-sm mb-3" style={is} value={search} onChange={e => setSearch(e.target.value)} placeholder="🔍 Search courses..." />
+            {/* AI Coach Nudge Banner */}
+            {(() => {
+              // Build a smart nudge based on user's data
+              const lowScorePkgs = myResults.filter((r: any) => r.score < 60)
+              const untestedPkgs = packages.filter((p: any) => p.status === 'published' && !myResults.some((r: any) => r.packageId === p.id))
+              const recentAvg = myResults.slice(0, 5).reduce((a: number, r: any) => a + (r.score || 0), 0) / (Math.min(5, myResults.length) || 1)
+              let nudge: { icon: string; text: string; action?: () => void; actionLabel?: string } | null = null
 
-            {/* Smart filters */}
-            <div className="flex gap-1.5 flex-wrap mb-3">
-              {[{ id: 'all', label: '📋 Active' }, { id: 'new', label: '🆕 New' }, { id: 'inprogress', label: '📖 In Progress' }, { id: 'completed', label: '✅ Completed' }].map(f => (
-                <button key={f.id} className="px-3 py-1 rounded-full text-xs font-medium"
-                  style={{ background: filterStatus === f.id ? 'var(--primary)' : 'var(--bg-card)', color: filterStatus === f.id ? 'white' : 'var(--text-secondary)', border: `1px solid ${filterStatus === f.id ? 'var(--primary)' : 'var(--border)'}` }}
-                  onClick={() => setFilterStatus(f.id)}>{f.label}</button>
-              ))}
+              if (myResults.length === 0 && packages.length > 0) {
+                nudge = { icon: '👋', text: `Hey ${user?.name?.split(' ')[0] || 'there'}! Pick a course and start learning — I'll track your progress and give you tips along the way.` }
+              } else if (lowScorePkgs.length > 0 && myResults.length >= 2) {
+                const weakPkg = packages.find((p: any) => p.id === lowScorePkgs[0]?.packageId)
+                if (weakPkg) {
+                  nudge = { icon: '💡', text: `Your score on "${weakPkg.name}" could use a boost. Try reviewing in Learn mode before retaking the test!`, action: () => { setActivePkg(weakPkg); setScreen('learn') }, actionLabel: 'Review Now' }
+                }
+              } else if (recentAvg >= 80 && untestedPkgs.length > 0) {
+                nudge = { icon: '🚀', text: `You're crushing it! Ready for something new? Try "${untestedPkgs[0].name}".`, action: () => { setActivePkg(untestedPkgs[0]); setScreen('detail') }, actionLabel: 'Check it out' }
+              } else if (gamData.streak >= 3) {
+                nudge = { icon: '🔥', text: `${gamData.streak}-day streak! Keep the momentum — consistency beats intensity.` }
+              }
+
+              if (!nudge) return null
+              return (
+                <div className="flex items-start gap-2.5 p-3 rounded-xl mb-3" style={{ background: 'linear-gradient(135deg, rgba(108,92,231,.06), rgba(0,206,201,.06))', border: '1px solid rgba(108,92,231,.12)' }}>
+                  <span className="text-lg">{nudge.icon}</span>
+                  <div className="flex-1">
+                    <p className="text-xs leading-relaxed" style={{ color: 'var(--text)' }}>{nudge.text}</p>
+                    {nudge.action && (
+                      <button className="mt-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold text-white" style={{ background: 'var(--primary)' }} onClick={nudge.action}>
+                        {nudge.actionLabel} →
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )
+            })()}
+
+            {/* Search + Filter row */}
+            <div className="flex gap-2 mb-3 items-center">
+              <div className="relative flex-1">
+                <select
+                  className="appearance-none pl-2.5 pr-7 py-2 rounded-lg text-xs font-medium cursor-pointer"
+                  style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', color: filterStatus === 'all' ? 'var(--text-muted)' : 'var(--primary)' }}
+                  value={filterStatus}
+                  onChange={e => setFilterStatus(e.target.value)}
+                >
+                  <option value="all">All Courses</option>
+                  <option value="new">🆕 New</option>
+                  <option value="inprogress">📖 In Progress</option>
+                  <option value="completed">✅ Completed</option>
+                </select>
+                {filterStatus !== 'all' && (
+                  <button
+                    className="absolute right-1 top-1/2 -translate-y-1/2 text-[10px] w-4 h-4 rounded-full flex items-center justify-center"
+                    style={{ background: 'var(--primary)', color: 'white' }}
+                    onClick={() => setFilterStatus('all')}
+                    title="Clear filter"
+                  >✕</button>
+                )}
+              </div>
+              <input className="flex-[2] px-3 py-2 rounded-lg text-sm" style={is} value={search} onChange={e => setSearch(e.target.value)} placeholder="🔍 Search courses..." />
             </div>
 
             {/* NAPLAN Practice Card */}
@@ -510,15 +562,6 @@ export function LearnerDashboard({ onSwitchView, onLogout }: LearnerDashboardPro
             {/* AI Study Plan */}
             <StudyPlanPanel packages={packages} testResults={myResults} cardStyle={cs} />
 
-            {/* AI Mentor / Coach */}
-            <AiMentor
-              packages={packages}
-              testResults={myResults}
-              gamification={gamData}
-              currentPackage={activePkg}
-              onNavigate={(s, pkg) => { if (pkg) setActivePkg(pkg); setScreen(s as any) }}
-            />
-
             <div className="flex gap-2 mb-5 flex-wrap">
               {[{ n: totalAttempts, l: 'Tests', c: 'var(--primary)' }, { n: avgScore + '%', l: 'Avg', c: avgScore >= 70 ? 'var(--success)' : 'var(--warning)' }, { n: myProgress.length, l: 'Started', c: 'var(--accent)' }, { n: myProgress.filter((p: any) => p.completed).length, l: 'Done', c: 'var(--success)' }].map((s, i) => (
                 <div key={i} className="flex-1 min-w-[70px] p-3 rounded-xl text-center" style={cs}>
@@ -542,6 +585,62 @@ export function LearnerDashboard({ onSwitchView, onLogout }: LearnerDashboardPro
               )
             })}
             {myResults.length === 0 && <p className="text-sm text-center py-8" style={{ color: 'var(--text-muted)' }}>Take a test to see progress</p>}
+          </div>
+        )}
+
+        {/* ============ PODCASTS ============ */}
+        {screen === 'podcasts' && (
+          <div className="animate-fade-in">
+            <h1 className="text-xl font-extrabold mb-1">🎧 Podcasts</h1>
+            <p className="text-sm mb-4" style={{ color: 'var(--text-secondary)' }}>Listen and learn — audio lessons for all your courses</p>
+
+            {/* Podcast cards for each course that has facts */}
+            {packages.filter((p: any) => p.facts && p.facts.length > 0).length === 0 ? (
+              <div className="text-center py-12">
+                <div className="text-4xl mb-3">🎙️</div>
+                <p className="text-sm" style={{ color: 'var(--text-muted)' }}>No courses with content available for podcasts yet.</p>
+                <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>Courses with facts will appear here as audio lessons.</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {packages.filter((p: any) => p.facts && p.facts.length > 0).map((pkg: any) => {
+                  const factCount = pkg.facts?.length || 0
+                  const estMinutes = Math.max(1, Math.ceil(factCount * 0.4))
+                  return (
+                    <div key={pkg.id} className="p-4 rounded-xl" style={cs}>
+                      <div className="flex items-start gap-3">
+                        <div className="w-12 h-12 rounded-xl flex items-center justify-center text-xl shrink-0" style={{ background: 'linear-gradient(135deg, var(--primary), var(--accent))' }}>
+                          🎧
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-bold truncate">{pkg.name}</div>
+                          <div className="text-[11px] mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                            {factCount} facts · ~{estMinutes} min · {pkg.subject || 'General'}
+                          </div>
+                          {pkg.yearLevel && (
+                            <span className="text-[9px] px-1.5 py-0.5 rounded-full mt-1 inline-block" style={{ background: 'rgba(108,92,231,.1)', color: 'var(--primary)' }}>{pkg.yearLevel}</span>
+                          )}
+                        </div>
+                        <button
+                          className="px-3 py-1.5 rounded-lg text-xs font-bold text-white shrink-0"
+                          style={{ background: 'var(--primary)' }}
+                          onClick={() => { setActivePkg(pkg); setLearnMode('podcast'); setScreen('learn') }}
+                        >
+                          ▶ Play
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+
+            {/* Podcast sync info */}
+            <div className="mt-6 p-4 rounded-xl text-center" style={{ background: 'rgba(108,92,231,.04)', border: '1px solid rgba(108,92,231,.12)' }}>
+              <div className="text-lg mb-1">📲</div>
+              <p className="text-xs font-semibold" style={{ color: 'var(--primary)' }}>Podcast App Sync</p>
+              <p className="text-[11px] mt-1" style={{ color: 'var(--text-muted)' }}>Coming soon — subscribe to your StudyFlow podcasts in Apple Podcasts, Spotify, and other podcast apps via RSS feed.</p>
+            </div>
           </div>
         )}
 
@@ -786,6 +885,7 @@ export function LearnerDashboard({ onSwitchView, onLogout }: LearnerDashboardPro
               {dueForReview.length > 0 && (
                 <button className="px-3 py-1 rounded-full text-[10px] font-semibold" style={{ background: spacedRepMode ? 'var(--warning)' : 'transparent', color: spacedRepMode ? 'white' : 'var(--text-muted)' }} onClick={() => setSpacedRepMode(!spacedRepMode)}>🧠 Review</button>
               )}
+              <button className="px-3 py-1 rounded-full text-[11px] font-semibold" style={{ background: learnMode === 'buddy' ? 'var(--primary)' : 'transparent', color: learnMode === 'buddy' ? 'white' : 'var(--text-muted)' }} onClick={() => setLearnMode('buddy')}>🤖 AI Buddy</button>
               <button className="px-3 py-1 rounded-full text-[10px] font-semibold" style={{ background: 'transparent', color: 'var(--accent)' }} onClick={() => setShowVisualLearning(true)}>🎨 Visual</button>
             </div>
 
@@ -899,6 +999,19 @@ export function LearnerDashboard({ onSwitchView, onLogout }: LearnerDashboardPro
             ) : learnMode === 'podcast' && activePkg?.facts?.length > 0 ? (
               /* Podcast mode — audio learning */
               <PodcastPlayer facts={activePkg.facts} packageName={activePkg.name} packageId={activePkg.id} cardStyle={cs} />
+            ) : learnMode === 'buddy' ? (
+              /* AI Buddy mode — course-specific chat */
+              <div className="rounded-xl overflow-hidden" style={{ ...cs, minHeight: 400 }}>
+                <StudyBuddy
+                  subject={activePkg?.subject}
+                  yearLevel={activePkg?.yearLevel}
+                  facts={activePkg?.facts}
+                  packageName={activePkg?.name}
+                  personality={studyBuddyPersonality}
+                  onClose={() => setLearnMode('swipe')}
+                  embedded
+                />
+              </div>
             ) : null}
           </div>
           )
@@ -1106,19 +1219,16 @@ export function LearnerDashboard({ onSwitchView, onLogout }: LearnerDashboardPro
         )}
       </div>
 
-      {/* Study Buddy floating button */}
-      {!showStudyBuddy && (
-        <button
-          className="fixed bottom-6 right-6 w-14 h-14 rounded-full flex items-center justify-center text-2xl shadow-lg z-50 transition-transform hover:scale-110"
-          style={{ background: 'linear-gradient(135deg, var(--primary), var(--accent))', color: 'white', boxShadow: '0 4px 20px rgba(108,92,231,.4)' }}
-          onClick={() => setShowStudyBuddy(true)}
-          title="Open Study Buddy"
-        >
-          🤖
-        </button>
-      )}
+      {/* AI Coach — floating button on all screens */}
+      <AiMentor
+        packages={packages}
+        testResults={myResults}
+        gamification={gamData}
+        currentPackage={activePkg}
+        onNavigate={(s, pkg) => { if (pkg) setActivePkg(pkg); if (s === 'studybuddy') { setShowStudyBuddy(true) } else { setScreen(s as any) } }}
+      />
 
-      {/* Study Buddy overlay */}
+      {/* Study Buddy overlay (full-screen chat) */}
       {showStudyBuddy && (
         <StudyBuddy
           subject={activePkg?.subject}

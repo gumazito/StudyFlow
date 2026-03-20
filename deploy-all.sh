@@ -85,16 +85,17 @@ git add -A
 if git diff --cached --quiet; then
   echo -e "${YELLOW}⚠${NC} No changes to commit"
 else
-  COMMIT_MSG="Deploy: Global Spotify bar, Podcast learn mode, TTS fallback, COOP fix
+  COMMIT_MSG="Deploy: AI Buddy everywhere, Podcasts tab, search/filter redesign, Spotify bar, COOP fix
 
-- Moved Spotify player to GlobalSpotifyBar dropdown in header (all views)
-- Added GlobalSpotifyBar to all dashboard nav bars (Learner, Publisher, Admin, Mentor, Profile, Groups)
-- Removed old SpotifyPlayer from learn mode inline area
-- Made Podcast its own learn mode tab (alongside Cards, Scroll, Feed)
-- Added browser SpeechSynthesis TTS fallback when Cloud Function returns 500
-- Silenced App Check warning (console.debug instead of console.warn)
-- Added COOP headers (same-origin-allow-popups) to firebase.json for Firebase Auth popups
-- Added COEP unsafe-none header for Spotify embed compatibility"
+- AI Buddy as learn mode tab (course-specific chat alongside Cards, Scroll, Feed, Podcast)
+- AI Buddy floating button on all learner screens with proactive nudge banners
+- Role-specific AI assistants for Mentors, Publishers, and Group Owners
+- New Podcasts tab in learner dashboard (before Social) with all-course podcast listing
+- Search + filter redesigned: inline row with dropdown filter and clear button
+- GlobalSpotifyBar in header across all views (Learner, Publisher, Admin, Mentor, Profile, Groups)
+- Browser SpeechSynthesis TTS fallback when Cloud Function returns 500
+- COOP headers (same-origin-allow-popups) for Firebase Auth popups
+- App Check warning silenced (console.debug)"
 
   git commit -m "$COMMIT_MSG"
   git push origin main 2>&1 | tail -5
@@ -123,11 +124,13 @@ echo -e "  COOP:  same-origin-allow-popups (fixes Auth popup errors)"
 echo -e "  Git:   Pushed to gumazito/StudyFlow"
 echo ""
 echo -e "  ${YELLOW}Changes in this deploy:${NC}"
+echo -e "    • AI Buddy as learn mode + proactive nudges on browse"
+echo -e "    • Role-specific AI assistants (Mentor, Publisher, Group Owner)"
+echo -e "    • Podcasts tab with all-course listing"
+echo -e "    • Search/filter redesigned (inline + dropdown)"
 echo -e "    • Global Spotify bar in header (all views)"
-echo -e "    • Podcast is now a learn mode tab"
 echo -e "    • Browser TTS fallback when Cloud Function TTS fails"
 echo -e "    • COOP headers fix Auth popup warnings"
-echo -e "    • App Check warning silenced"
 echo ""
 echo -e "  ${YELLOW}Tip:${NC} If build errors occur, run: npx tsc --noEmit"
 echo ""

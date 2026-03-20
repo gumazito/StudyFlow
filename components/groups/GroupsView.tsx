@@ -9,6 +9,7 @@ import { VerificationForm } from './VerificationForm'
 import { JoinRequestsPanel } from './JoinRequestsPanel'
 import { searchSchools, type AustralianSchool } from '@/lib/australian-schools'
 import { GlobalSpotifyBar } from '@/components/layout/GlobalSpotifyBar'
+import { RoleAiBuddy } from '@/components/shared/RoleAiBuddy'
 
 interface GroupsViewProps {
   myGroups: any[]
@@ -23,6 +24,7 @@ export function GroupsView({ myGroups, setMyGroups, activeGroup, setActiveGroup,
   const { user } = useAuth()
   const { toast } = useToast()
   const { showConfirm } = useModal()
+  const [showAiBuddy, setShowAiBuddy] = useState(false)
   const [screen, setScreen] = useState<'list' | 'create' | 'manage' | 'browse'>('list')
   const [editingGroup, setEditingGroup] = useState<any>(null)
   const [allGroups, setAllGroups] = useState<any[]>([])
@@ -368,6 +370,30 @@ export function GroupsView({ myGroups, setMyGroups, activeGroup, setActiveGroup,
           </div>
         )}
       </div>
+
+      {/* AI Buddy for Group Owners — floating button */}
+      {!showAiBuddy && (
+        <button
+          className="fixed bottom-6 right-6 w-14 h-14 rounded-full flex items-center justify-center text-2xl shadow-lg z-50 transition-transform hover:scale-110"
+          style={{ background: 'linear-gradient(135deg, #00cec9, #0984e3)', color: 'white', boxShadow: '0 4px 20px rgba(0,206,201,.4)' }}
+          onClick={() => setShowAiBuddy(true)}
+          title="AI Group Assistant"
+        >
+          👥
+        </button>
+      )}
+
+      {showAiBuddy && (() => {
+        const currentGroup = myGroups.find(g => g.id === activeGroup) as any
+        return (
+          <RoleAiBuddy
+            role="group-owner"
+            groupMembers={currentGroup?.members || []}
+            groupName={currentGroup?.name}
+            onClose={() => setShowAiBuddy(false)}
+          />
+        )
+      })()}
     </div>
   )
 }

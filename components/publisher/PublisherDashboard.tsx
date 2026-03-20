@@ -8,6 +8,7 @@ import { useModal } from '@/lib/contexts/ThemeContext'
 import { PackageEditor } from './PackageEditor'
 import { PdfExport } from './PdfExport'
 import { GlobalSpotifyBar } from '@/components/layout/GlobalSpotifyBar'
+import { RoleAiBuddy } from '@/components/shared/RoleAiBuddy'
 
 interface PublisherDashboardProps {
   onSwitchView: ((view: string | null) => void) | null
@@ -23,6 +24,7 @@ export function PublisherDashboard({ onSwitchView, onLogout }: PublisherDashboar
   const [search, setSearch] = useState('')
   const [screen, setScreen] = useState<'dashboard' | 'analytics' | 'editor'>('dashboard')
   const [editingPkg, setEditingPkg] = useState<any>(null)
+  const [showAiBuddy, setShowAiBuddy] = useState(false)
   const [analyticsData, setAnalyticsData] = useState<any[] | null>(null)
   const [showTemplates, setShowTemplates] = useState(false)
   const [showAiForm, setShowAiForm] = useState(false)
@@ -428,6 +430,26 @@ export function PublisherDashboard({ onSwitchView, onLogout }: PublisherDashboar
           )
         })()}
       </div>
+
+      {/* AI Buddy floating button */}
+      {!showAiBuddy && (
+        <button
+          className="fixed bottom-6 right-6 w-14 h-14 rounded-full flex items-center justify-center text-2xl shadow-lg z-50 transition-transform hover:scale-110"
+          style={{ background: 'linear-gradient(135deg, #6c5ce7, #a29bfe)', color: 'white', boxShadow: '0 4px 20px rgba(108,92,231,.4)' }}
+          onClick={() => setShowAiBuddy(true)}
+          title="AI Publisher Assistant"
+        >
+          ✏️
+        </button>
+      )}
+
+      {showAiBuddy && (
+        <RoleAiBuddy
+          role="publisher"
+          packages={packages}
+          onClose={() => setShowAiBuddy(false)}
+        />
+      )}
     </div>
   )
 }

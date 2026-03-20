@@ -4,6 +4,7 @@ import { useAuth } from '@/lib/contexts/AuthContext'
 import { useToast } from '@/lib/contexts/ThemeContext'
 import * as DB from '@/lib/db'
 import { GlobalSpotifyBar } from '@/components/layout/GlobalSpotifyBar'
+import { RoleAiBuddy } from '@/components/shared/RoleAiBuddy'
 
 interface MentorDashboardProps {
   onSwitchView: ((view: string | null) => void) | null
@@ -18,6 +19,7 @@ export function MentorDashboard({ onSwitchView, onLogout }: MentorDashboardProps
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [showAiBuddy, setShowAiBuddy] = useState(false)
   const [selectedMentee, setSelectedMentee] = useState<string | null>(null)
 
   useEffect(() => {
@@ -178,6 +180,27 @@ export function MentorDashboard({ onSwitchView, onLogout }: MentorDashboardProps
           </>
         )}
       </div>
+      {/* AI Buddy floating button */}
+      {!showAiBuddy && (
+        <button
+          className="fixed bottom-6 right-6 w-14 h-14 rounded-full flex items-center justify-center text-2xl shadow-lg z-50 transition-transform hover:scale-110"
+          style={{ background: 'linear-gradient(135deg, #e17055, #fdcb6e)', color: 'white', boxShadow: '0 4px 20px rgba(225,112,85,.4)' }}
+          onClick={() => setShowAiBuddy(true)}
+          title="AI Mentor Assistant"
+        >
+          🧭
+        </button>
+      )}
+
+      {/* AI Buddy overlay */}
+      {showAiBuddy && (
+        <RoleAiBuddy
+          role="mentor"
+          mentees={mentees.map(m => ({ ...m, ...menteeData[m.userId] }))}
+          testResults={Object.values(menteeData).flatMap((d: any) => d?.results || [])}
+          onClose={() => setShowAiBuddy(false)}
+        />
+      )}
     </div>
   )
 }

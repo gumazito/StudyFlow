@@ -19,6 +19,8 @@ interface StudyBuddyProps {
   packageName?: string
   personality?: 'encouraging' | 'strict' | 'humorous'
   onClose: () => void
+  /** When true, renders inline (not as a fixed overlay). Used in learn mode. */
+  embedded?: boolean
 }
 
 /**
@@ -26,7 +28,7 @@ interface StudyBuddyProps {
  * Provides contextual help based on the active course/subject.
  * Uses the multi-provider AI fallback system.
  */
-export function StudyBuddy({ subject, yearLevel, facts, packageName, personality = 'encouraging', onClose }: StudyBuddyProps) {
+export function StudyBuddy({ subject, yearLevel, facts, packageName, personality = 'encouraging', onClose, embedded = false }: StudyBuddyProps) {
   const { user } = useAuth()
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
@@ -151,9 +153,9 @@ export function StudyBuddy({ subject, yearLevel, facts, packageName, personality
   ]
 
   return (
-    <div className="fixed inset-0 z-[999] flex flex-col" style={{ background: 'var(--bg)' }}>
+    <div className={embedded ? "flex flex-col" : "fixed inset-0 z-[999] flex flex-col"} style={{ background: 'var(--bg)', ...(embedded ? { minHeight: 400, maxHeight: '70vh' } : {}) }}>
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b" style={{ borderColor: 'var(--border)', background: 'var(--bg-card)' }}>
+      <div className="flex items-center justify-between px-4 py-3 border-b" style={{ borderColor: 'var(--border)', background: 'var(--bg-card)', ...(embedded ? { borderRadius: '12px 12px 0 0' } : {}) }}>
         <div className="flex items-center gap-2">
           <span className="text-xl">🤖</span>
           <div>
