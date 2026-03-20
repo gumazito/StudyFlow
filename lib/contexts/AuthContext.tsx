@@ -5,7 +5,7 @@ import { onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndP
   EmailAuthProvider, reauthenticateWithCredential, deleteUser, User as FirebaseUser,
   GoogleAuthProvider, OAuthProvider, signInWithPopup } from 'firebase/auth'
 import { doc, getDoc, setDoc, collection, getDocs, deleteDoc, query, where } from 'firebase/firestore'
-import { auth, db, SYSTEM_ADMIN_EMAIL } from '@/lib/firebase'
+import { auth, db, SYSTEM_ADMIN_EMAIL, SUPER_USER_EMAILS, ALWAYS_PREMIUM_EMAILS } from '@/lib/firebase'
 
 export interface UserProfile {
   id: string
@@ -73,13 +73,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // Migration: old single role to roles array
           let roles = profile.roles || [profile.role || "learner"]
           let status = profile.status || "approved"
-          const isAdmin = fbUser.email === SYSTEM_ADMIN_EMAIL || roles.includes("admin")
-          
-          // Auto-grant admin to system admin email
-          if (fbUser.email === SYSTEM_ADMIN_EMAIL && !roles.includes("admin")) {
+          const isSuperUser = SUPER_USER_EMAILS.includes(fbUser.email?.toLowerCase() || '')
+          const isAdmin = fbUser.email === SYSTEM_ADMIN_EMAIL || isSuperUser || roles.includes("admin")
+
+          // Auto-grant admin + approved to super users
+          if (isSuperUser && (!roles.includes("admin") || status !== "approved")) {
             roles = [...new Set([...roles, "admin"])]
             status = "approved"
             await setDoc(docRef, { roles, status }, { merge: true })
+          }
+
+          // Auto-grant premium to always-premium accounts
+          if (ALWAYS_PREMIUM_EMAILS.includes(fbUser.email?.toLowerCase() || '') && !profile.manualPremium) {
+            await setDoc(docRef, { manualPremium: true, premiumGrantedBy: 'system', premiumGrantedAt: Date.now() }, { merge: true })
           }
           
           setUser({
@@ -107,19 +113,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   const signup = async (email: string, password: string, name: string, roles: string[], dob?: string) => {
-    const isAdmin = email.toLowerCase() === SYSTEM_ADMIN_EMAIL
-    const finalRoles = isAdmin ? [...new Set([...roles, "admin"])] : roles
-    const status = isAdmin ? "approved" : "pending"
+    const emailLower = email.toLowerCase()
+    const isSuperUser = SUPER_USER_EMAILS.includes(emailLower)
+    const isPremium = ALWAYS_PREMIUM_EMAILS.includes(emailLower)
+    const finalRoles = isSuperUser ? [...new Set([...roles, "admin"])] : roles
+    const status = isSuperUser ? "approved" : "pending"
     const yearLevel = dob ? dobToYearLevel(dob) : null
 
     const cred = await createUserWithEmailAndPassword(auth, email, password)
     await setDoc(doc(db, "users", cred.user.uid), {
       name, email, roles: finalRoles, status, dob: dob || null,
       yearLevel, createdAt: Date.now(),
+      ...(isPremium ? { manualPremium: true, premiumGrantedBy: 'system', premiumGrantedAt: Date.now() } : {}),
     })
 
-    // Notify admin of new signup (unless this IS the admin)
-    if (!isAdmin) {
+    // Notify admin of new signup (unless super user)
+    if (!isSuperUser) {
       const notifRef = collection(db, "admin_notifications")
       await setDoc(doc(notifRef), {
         type: "new_signup", userName: name, userEmail: email,
@@ -137,20 +146,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const snap = await getDoc(docRef)
     if (!snap.exists()) {
       // First time social login — create user record
-      const isAdmin = fbUser.email?.toLowerCase() === SYSTEM_ADMIN_EMAIL
+      const emailLower = fbUser.email?.toLowerCase() || ''
+      const isSuperUser = SUPER_USER_EMAILS.includes(emailLower)
+      const isPremium = ALWAYS_PREMIUM_EMAILS.includes(emailLower)
+      const roles = isSuperUser ? ['learner', 'admin'] : ['learner']
+      const status = isSuperUser ? 'approved' : 'pending'
+
       await setDoc(docRef, {
         name: fbUser.displayName || fbUser.email || 'User',
         email: fbUser.email,
-        roles: isAdmin ? ['learner', 'admin'] : ['learner'],
-        status: isAdmin ? 'approved' : 'pending',
+        roles,
+        status,
         createdAt: Date.now(),
         authProvider: provider.providerId,
+        ...(isPremium ? { manualPremium: true, premiumGrantedBy: 'system', premiumGrantedAt: Date.now() } : {}),
       })
-      // Notify admin
-      if (!isAdmin) {
+      // Notify admin (skip for super users)
+      if (!isSuperUser) {
         await setDoc(doc(collection(db, "admin_notifications")), {
           type: "new_signup", userName: fbUser.displayName || fbUser.email,
-          userEmail: fbUser.email, userRoles: ['learner'], userId: fbUser.uid,
+          userEmail: fbUser.email, userRoles: roles, userId: fbUser.uid,
           message: `New social signup: ${fbUser.displayName || fbUser.email} via ${provider.providerId}`,
           createdAt: Date.now(), read: false,
         })

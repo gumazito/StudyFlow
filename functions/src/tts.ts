@@ -80,7 +80,7 @@ async function generateWithElevenLabs(text: string, voice: string, apiKey: strin
   return Buffer.from(arrayBuffer)
 }
 
-export const textToSpeech = functions.https.onRequest((req, res) => {
+export const textToSpeech = functions.region('australia-southeast1').https.onRequest((req, res) => {
   corsHandler(req, res, async () => {
     try {
       // Verify Firebase auth

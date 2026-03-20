@@ -31,7 +31,7 @@ function getSpotifyConfig() {
 /**
  * Generate Spotify authorization URL
  */
-export const spotifyAuth = functions.https.onRequest((req, res) => {
+export const spotifyAuth = functions.region('australia-southeast1').https.onRequest((req, res) => {
   corsHandler(req, res, async () => {
     try {
       const { clientId, redirectUri } = getSpotifyConfig()
@@ -68,7 +68,7 @@ export const spotifyAuth = functions.https.onRequest((req, res) => {
 /**
  * Handle Spotify OAuth callback — exchange code for tokens
  */
-export const spotifyCallback = functions.https.onRequest((req, res) => {
+export const spotifyCallback = functions.region('australia-southeast1').https.onRequest((req, res) => {
   corsHandler(req, res, async () => {
     try {
       const { code, state } = req.query as { code?: string; state?: string }
@@ -121,7 +121,7 @@ export const spotifyCallback = functions.https.onRequest((req, res) => {
 /**
  * Refresh Spotify access token
  */
-export const spotifyRefresh = functions.https.onRequest((req, res) => {
+export const spotifyRefresh = functions.region('australia-southeast1').https.onRequest((req, res) => {
   corsHandler(req, res, async () => {
     try {
       const { userId } = req.body as { userId?: string }

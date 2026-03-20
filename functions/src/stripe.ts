@@ -24,7 +24,7 @@ function getStripe() {
 /**
  * Create a Stripe Checkout session for subscription
  */
-export const createCheckoutSession = functions.https.onRequest((req, res) => {
+export const createCheckoutSession = functions.region('australia-southeast1').https.onRequest((req, res) => {
   corsHandler(req, res, async () => {
     try {
       // Verify Firebase auth
@@ -110,7 +110,7 @@ export const createCheckoutSession = functions.https.onRequest((req, res) => {
 /**
  * Stripe webhook handler for subscription events
  */
-export const stripeWebhook = functions.https.onRequest(async (req, res) => {
+export const stripeWebhook = functions.region('australia-southeast1').https.onRequest(async (req, res) => {
   const stripeConfig = functions.config().stripe || {}
   if (!stripeConfig.secret_key || !stripeConfig.webhook_secret) {
     res.status(500).json({ error: 'Stripe webhook not configured' })
@@ -215,7 +215,7 @@ export const stripeWebhook = functions.https.onRequest(async (req, res) => {
 /**
  * Get subscription status for current user
  */
-export const getSubscriptionStatus = functions.https.onRequest((req, res) => {
+export const getSubscriptionStatus = functions.region('australia-southeast1').https.onRequest((req, res) => {
   corsHandler(req, res, async () => {
     try {
       const authHeader = req.headers.authorization
@@ -246,7 +246,7 @@ export const getSubscriptionStatus = functions.https.onRequest((req, res) => {
 /**
  * Cancel subscription with optional retention offer (discount or pause)
  */
-export const cancelSubscription = functions.https.onRequest((req, res) => {
+export const cancelSubscription = functions.region('australia-southeast1').https.onRequest((req, res) => {
   corsHandler(req, res, async () => {
     try {
       const authHeader = req.headers.authorization

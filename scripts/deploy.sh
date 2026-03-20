@@ -6,11 +6,15 @@
 # Usage: cd ~/Development/StudyFlow && bash scripts/deploy.sh
 #
 # Options:
-#   bash scripts/deploy.sh              → Deploy everything
-#   bash scripts/deploy.sh site         → Website only (fastest)
+#   bash scripts/deploy.sh              → Deploy site + functions (default)
+#   bash scripts/deploy.sh site         → Website only (fastest, ~30s)
 #   bash scripts/deploy.sh functions    → Cloud Functions only
-#   bash scripts/deploy.sh rules        → Firestore rules only
-#   bash scripts/deploy.sh full         → Everything + git push
+#   bash scripts/deploy.sh rules        → Firestore rules + indexes
+#   bash scripts/deploy.sh full         → Everything + git commit & push
+#   bash scripts/deploy.sh git          → Just commit and push (no deploy)
+#   bash scripts/deploy.sh config       → Show current configuration
+#   bash scripts/deploy.sh rotate-keys  → Check & rotate OAuth secrets
+#   bash scripts/deploy.sh update-domain → Update domain/project/region config
 # ============================================================
 
 set -e
@@ -117,15 +121,74 @@ case "$MODE" in
   git)
     git_push
     ;;
-  *)
-    echo "Usage: bash scripts/deploy.sh [site|functions|rules|full|git]"
+  config|status)
     echo ""
-    echo "  site       Website only (fastest — ~30s)"
-    echo "  functions  Cloud Functions only"
-    echo "  rules      Firestore security rules"
-    echo "  full       Everything + git commit & push"
-    echo "  git        Just commit and push (no deploy)"
-    echo "  (empty)    Website + functions (default)"
+    echo -e "${CYAN}  📋 Current Configuration:${NC}"
+    echo ""
+    PROJECT=$(grep '"default"' .firebaserc 2>/dev/null | sed 's/.*: *"\(.*\)".*/\1/')
+    REGION=$(grep 'NEXT_PUBLIC_FUNCTIONS_URL' .env.local 2>/dev/null | sed 's/.*https:\/\/\([^-]*-[^-]*\)-.*/\1/')
+    echo -e "  Firebase Project:  ${GREEN}$PROJECT${NC}"
+    echo -e "  Region:            ${GREEN}$REGION${NC}"
+    echo -e "  Hosting URL:       ${GREEN}https://${PROJECT}.web.app${NC}"
+    echo -e "  Functions URL:     ${GREEN}https://${REGION}-${PROJECT}.cloudfunctions.net${NC}"
+    echo ""
+    echo -e "  ${CYAN}OAuth Providers:${NC}"
+    echo "    Google    — configured in Firebase Console"
+    echo "    Apple     — configured in Firebase Console"
+    echo "    Microsoft — Azure App ID: e4021569-f628-46e6-87df-4cbb48b38a0b"
+    echo "                Secret expires: March 2028"
+    echo ""
+    echo -e "  ${CYAN}Super Users (auto-admin, auto-approved):${NC}"
+    echo "    courtenay@hollis.family"
+    echo "    ezrela@hollis.family"
+    echo ""
+    echo -e "  ${CYAN}Always Premium:${NC}"
+    echo "    courtenay@hollis.family"
+    echo "    savannah@hollis.family"
+    echo "    ezrela@hollis.family"
+    echo "    ethan@hollis.family"
+    echo ""
+    ;;
+  rotate-keys|rotate|keys)
+    if [ -f "scripts/rotate-microsoft-key.sh" ]; then
+      bash scripts/rotate-microsoft-key.sh
+    else
+      fail "rotate-microsoft-key.sh not found"
+    fi
+    ;;
+  update-domain|domain)
+    if [ -f "scripts/update-domain.sh" ]; then
+      bash scripts/update-domain.sh --all
+    else
+      fail "update-domain.sh not found"
+    fi
+    ;;
+  *)
+    echo ""
+    echo -e "${BLUE}Usage: bash scripts/deploy.sh [command]${NC}"
+    echo ""
+    echo -e "${CYAN}  Deploy Commands:${NC}"
+    echo "    site             Website only (fastest — ~30s)"
+    echo "    functions        Cloud Functions only"
+    echo "    rules            Firestore security rules + indexes"
+    echo "    full             Everything + git commit & push"
+    echo "    (no argument)    Website + functions (default)"
+    echo ""
+    echo -e "${CYAN}  Git Commands:${NC}"
+    echo "    git              Just commit and push (no deploy)"
+    echo ""
+    echo -e "${CYAN}  Configuration:${NC}"
+    echo "    config           Show current project configuration"
+    echo "    rotate-keys      Check & rotate Microsoft OAuth secret"
+    echo "    update-domain    Update domain, project ID, or region"
+    echo ""
+    echo -e "${CYAN}  Examples:${NC}"
+    echo "    bash scripts/deploy.sh              # deploy site + functions"
+    echo "    bash scripts/deploy.sh site          # quick site-only deploy"
+    echo "    bash scripts/deploy.sh full          # deploy everything + push to git"
+    echo "    bash scripts/deploy.sh config        # see current setup"
+    echo "    bash scripts/deploy.sh rotate-keys   # check OAuth key expiry"
+    echo ""
     exit 0
     ;;
 esac

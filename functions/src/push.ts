@@ -13,7 +13,7 @@ const corsHandler = cors({ origin: true })
 /**
  * Register/update push notification token for a user
  */
-export const subscribeToPush = functions.https.onRequest((req, res) => {
+export const subscribeToPush = functions.region('australia-southeast1').https.onRequest((req, res) => {
   corsHandler(req, res, async () => {
     try {
       const authHeader = req.headers.authorization
@@ -46,7 +46,7 @@ export const subscribeToPush = functions.https.onRequest((req, res) => {
 /**
  * Send push notification to a specific user or all users
  */
-export const sendPushNotification = functions.https.onRequest((req, res) => {
+export const sendPushNotification = functions.region('australia-southeast1').https.onRequest((req, res) => {
   corsHandler(req, res, async () => {
     try {
       const authHeader = req.headers.authorization
@@ -156,7 +156,7 @@ export const sendPushNotification = functions.https.onRequest((req, res) => {
 /**
  * Firestore triggers for auto-push on key events
  */
-export const onNewTestResult = functions.firestore
+export const onNewTestResult = functions.region('australia-southeast1').firestore
   .document('test_results/{resultId}')
   .onCreate(async (snap) => {
     const result = snap.data()

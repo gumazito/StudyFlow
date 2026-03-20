@@ -33,7 +33,7 @@ interface SmsRequest {
 /**
  * Send email notification via SendGrid
  */
-export const sendEmailNotification = functions.https.onRequest((req, res) => {
+export const sendEmailNotification = functions.region('australia-southeast1').https.onRequest((req, res) => {
   corsHandler(req, res, async () => {
     try {
       // Verify Firebase auth
@@ -108,7 +108,7 @@ export const sendEmailNotification = functions.https.onRequest((req, res) => {
 /**
  * Send SMS notification via Twilio
  */
-export const sendSmsNotification = functions.https.onRequest((req, res) => {
+export const sendSmsNotification = functions.region('australia-southeast1').https.onRequest((req, res) => {
   corsHandler(req, res, async () => {
     try {
       // Verify Firebase auth
@@ -175,7 +175,7 @@ export const sendSmsNotification = functions.https.onRequest((req, res) => {
 /**
  * Firestore trigger: Auto-send email on new course announcement
  */
-export const onNewAnnouncement = functions.firestore
+export const onNewAnnouncement = functions.region('australia-southeast1').firestore
   .document('announcements/{announcementId}')
   .onCreate(async (snap) => {
     const announcement = snap.data()
@@ -228,7 +228,7 @@ export const onNewAnnouncement = functions.firestore
  * Weekly Progress Summary Email (Scheduled — every Monday 7am AEST)
  * Sends each user a digest of their week: tests taken, scores, streaks, courses progress.
  */
-export const weeklyProgressSummary = functions.pubsub
+export const weeklyProgressSummary = functions.region('australia-southeast1').pubsub
   .schedule('0 7 * * 1')
   .timeZone('Australia/Sydney')
   .onRun(async () => {
@@ -361,7 +361,7 @@ export const weeklyProgressSummary = functions.pubsub
  * Sends a gentle nudge to users who haven't been active for 7+ days.
  * Only sends once per inactivity period (tracked via lastReminderSent).
  */
-export const inactiveUserReminder = functions.pubsub
+export const inactiveUserReminder = functions.region('australia-southeast1').pubsub
   .schedule('0 17 * * *')
   .timeZone('Australia/Sydney')
   .onRun(async () => {

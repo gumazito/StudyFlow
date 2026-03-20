@@ -10,8 +10,8 @@ import { auth } from './firebase'
 // Auto-detect functions URL based on environment
 const FUNCTIONS_BASE = process.env.NEXT_PUBLIC_FUNCTIONS_URL ||
   (process.env.NEXT_PUBLIC_ENV === 'production'
-    ? 'https://us-central1-studyflow-app.cloudfunctions.net'
-    : 'https://us-central1-studyflow-staging.cloudfunctions.net')
+    ? 'https://australia-southeast1-studyflow-f2e7a.cloudfunctions.net'
+    : 'https://australia-southeast1-studyflow-f2e7a.cloudfunctions.net')
 
 async function getAuthToken(): Promise<string> {
   const user = auth.currentUser
@@ -51,6 +51,10 @@ async function callFunction(name: string, data?: any, method: 'GET' | 'POST' = '
 // ============================================================
 export async function lookupAbn(abn: string) {
   return callFunction('abnLookup', { abn }, 'GET')
+}
+
+export async function searchAbnByName(name: string, state?: string) {
+  return callFunction('abnLookup', { name, ...(state ? { state } : {}) }, 'GET')
 }
 
 // ============================================================

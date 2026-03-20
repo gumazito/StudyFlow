@@ -19,4 +19,18 @@ export const auth = getAuth(app)
 export const db = getFirestore(app)
 export const storage = getStorage(app)
 export const SYSTEM_ADMIN_EMAIL = process.env.NEXT_PUBLIC_SYSTEM_ADMIN_EMAIL || 'courtenay@hollis.family'
+
+// Super users — auto-approved + admin on first login, no approval needed
+export const SUPER_USER_EMAILS = [
+  'courtenay@hollis.family',
+  'ezrela@hollis.family',
+]
+
+// Always-premium family accounts (never need subscription)
+export const ALWAYS_PREMIUM_EMAILS = [
+  'courtenay@hollis.family',
+  'savannah@hollis.family',
+  'ezrela@hollis.family',
+  'ethan@hollis.family',
+]
 export default app

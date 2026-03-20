@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useToast } from '@/lib/contexts/ThemeContext'
-import { lookupAbn } from '@/lib/cloud-functions'
+import { lookupAbn, searchAbnByName } from '@/lib/cloud-functions'
 
 interface AbnLookupProps {
   value: string
@@ -13,13 +13,18 @@ interface AbnLookupProps {
 
 /**
  * ABN (Australian Business Number) lookup component.
- * Validates ABN format and looks up business details via ABR API Cloud Function.
+ * Supports two modes:
+ * - Search by ABN number (11 digits)
+ * - Search by company/business name
  */
 export function AbnLookup({ value, onChange, onResult, inputStyle }: AbnLookupProps) {
   const { toast } = useToast()
   const [looking, setLooking] = useState(false)
   const [result, setResult] = useState<any>(null)
+  const [nameResults, setNameResults] = useState<any[]>([])
   const [error, setError] = useState('')
+  const [mode, setMode] = useState<'abn' | 'name'>('abn')
+  const [nameQuery, setNameQuery] = useState('')
 
   const formatAbn = (raw: string) => {
     const digits = raw.replace(/\D/g, '').slice(0, 11)
@@ -33,10 +38,11 @@ export function AbnLookup({ value, onChange, onResult, inputStyle }: AbnLookupPr
     const formatted = formatAbn(raw)
     onChange(formatted)
     setResult(null)
+    setNameResults([])
     setError('')
   }
 
-  const doLookup = async () => {
+  const doAbnLookup = async () => {
     const digits = value.replace(/\D/g, '')
     if (digits.length !== 11) {
       setError('ABN must be 11 digits')
@@ -49,10 +55,7 @@ export function AbnLookup({ value, onChange, onResult, inputStyle }: AbnLookupPr
       const data = await lookupAbn(digits)
       setResult(data)
       onResult?.(data)
-
-      if (!data.isActive) {
-        setError('This ABN is not currently active')
-      }
+      if (!data.isActive) setError('This ABN is not currently active')
     } catch (err: any) {
       if (err.message?.includes('not configured')) {
         setError('ABN lookup service not yet configured. Enter ABN manually.')
@@ -64,36 +67,137 @@ export function AbnLookup({ value, onChange, onResult, inputStyle }: AbnLookupPr
     }
   }
 
+  const doNameSearch = async () => {
+    if (nameQuery.trim().length < 2) {
+      setError('Enter at least 2 characters')
+      return
+    }
+
+    setLooking(true)
+    setError('')
+    setNameResults([])
+    try {
+      const data = await searchAbnByName(nameQuery.trim())
+      if (data.results && data.results.length > 0) {
+        setNameResults(data.results)
+      } else {
+        setError('No businesses found matching that name')
+      }
+    } catch (err: any) {
+      if (err.message?.includes('not configured')) {
+        setError('ABN lookup service not yet configured. Enter ABN manually.')
+      } else {
+        setError(err.message || 'Name search failed')
+      }
+    } finally {
+      setLooking(false)
+    }
+  }
+
+  const selectResult = (r: any) => {
+    const formatted = formatAbn(r.abn)
+    onChange(formatted)
+    setResult(r)
+    onResult?.(r)
+    setNameResults([])
+    setNameQuery('')
+    setMode('abn')
+  }
+
   return (
     <div>
-      <div className="flex gap-2">
-        <input
-          className="flex-1 px-3 py-2 rounded-md text-sm"
-          style={inputStyle}
-          value={value}
-          onChange={e => handleChange(e.target.value)}
-          placeholder="XX XXX XXX XXX"
-          maxLength={14}
-        />
+      {/* Mode toggle */}
+      <div className="flex gap-1 mb-1.5">
         <button
-          onClick={doLookup}
-          disabled={looking || value.replace(/\D/g, '').length !== 11}
-          className="px-3 py-2 rounded-md text-xs font-semibold text-white whitespace-nowrap"
-          style={{
-            background: looking ? 'var(--text-muted)' : 'var(--primary)',
-            opacity: value.replace(/\D/g, '').length !== 11 ? 0.5 : 1,
-          }}
+          className="px-2 py-0.5 rounded-full text-[10px]"
+          style={{ background: mode === 'abn' ? 'var(--primary)' : 'var(--bg)', color: mode === 'abn' ? 'white' : 'var(--text-muted)', border: '1px solid var(--border)' }}
+          onClick={() => { setMode('abn'); setNameResults([]); setError('') }}
         >
-          {looking ? '...' : '🔍 Lookup'}
+          Search by ABN
+        </button>
+        <button
+          className="px-2 py-0.5 rounded-full text-[10px]"
+          style={{ background: mode === 'name' ? 'var(--primary)' : 'var(--bg)', color: mode === 'name' ? 'white' : 'var(--text-muted)', border: '1px solid var(--border)' }}
+          onClick={() => { setMode('name'); setResult(null); setError('') }}
+        >
+          Search by Name
         </button>
       </div>
 
+      {mode === 'abn' ? (
+        <div className="flex gap-2">
+          <input
+            className="flex-1 px-3 py-2 rounded-md text-sm"
+            style={inputStyle}
+            value={value}
+            onChange={e => handleChange(e.target.value)}
+            placeholder="XX XXX XXX XXX"
+            maxLength={14}
+          />
+          <button
+            onClick={doAbnLookup}
+            disabled={looking || value.replace(/\D/g, '').length !== 11}
+            className="px-3 py-2 rounded-md text-xs font-semibold text-white whitespace-nowrap"
+            style={{
+              background: looking ? 'var(--text-muted)' : 'var(--primary)',
+              opacity: value.replace(/\D/g, '').length !== 11 ? 0.5 : 1,
+            }}
+          >
+            {looking ? '...' : '🔍 Lookup'}
+          </button>
+        </div>
+      ) : (
+        <div className="flex gap-2">
+          <input
+            className="flex-1 px-3 py-2 rounded-md text-sm"
+            style={inputStyle}
+            value={nameQuery}
+            onChange={e => { setNameQuery(e.target.value); setError('') }}
+            placeholder="Company or business name..."
+            onKeyDown={e => { if (e.key === 'Enter') doNameSearch() }}
+          />
+          <button
+            onClick={doNameSearch}
+            disabled={looking || nameQuery.trim().length < 2}
+            className="px-3 py-2 rounded-md text-xs font-semibold text-white whitespace-nowrap"
+            style={{
+              background: looking ? 'var(--text-muted)' : 'var(--primary)',
+              opacity: nameQuery.trim().length < 2 ? 0.5 : 1,
+            }}
+          >
+            {looking ? '...' : '🔍 Search'}
+          </button>
+        </div>
+      )}
+
+      {/* ABN lookup result */}
       {result && result.isActive && (
         <div className="mt-1.5 p-2 rounded-lg text-xs" style={{ background: 'rgba(0,212,106,.08)', border: '1px solid rgba(0,212,106,.2)' }}>
           <div className="font-semibold" style={{ color: 'var(--text)' }}>{result.entityName}</div>
           <div className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
-            {result.entityType} · {result.state} {result.postcode} · Status: {result.status}
+            ABN: {result.abn} · {result.entityType} · {result.state} {result.postcode} · Status: {result.status}
           </div>
+        </div>
+      )}
+
+      {/* Name search results */}
+      {nameResults.length > 0 && (
+        <div className="mt-1.5 max-h-[200px] overflow-y-auto rounded-lg" style={{ border: '1px solid var(--border)' }}>
+          {nameResults.map((r: any, i: number) => (
+            <button
+              key={i}
+              className="w-full text-left px-3 py-2 text-xs hover:bg-opacity-10 border-b last:border-b-0"
+              style={{ borderColor: 'var(--border)', background: i % 2 === 0 ? 'var(--bg)' : 'var(--bg-card)' }}
+              onClick={() => selectResult(r)}
+            >
+              <div className="font-semibold" style={{ color: r.isActive ? 'var(--text)' : 'var(--text-muted)' }}>
+                {r.entityName} {!r.isActive && <span style={{ color: 'var(--danger)' }}>(Inactive)</span>}
+              </div>
+              <div className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
+                ABN: {r.abn} · {r.entityType || 'Business'} · {r.state} {r.postcode}
+              </div>
+            </button>
+          ))}
         </div>
       )}
 
@@ -102,7 +206,7 @@ export function AbnLookup({ value, onChange, onResult, inputStyle }: AbnLookupPr
       )}
 
       <div className="text-[10px] mt-0.5" style={{ color: 'var(--text-muted)' }}>
-        Must match the ABN on the letterhead document
+        {mode === 'abn' ? 'Must match the ABN on the letterhead document' : 'Select a business to auto-fill the ABN'}
       </div>
     </div>
   )

@@ -89,23 +89,10 @@
       ]
     },
     {
-      "collectionGroup": "admin_notifications",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "createdAt", "order": "DESCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "announcements",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "createdAt", "order": "DESCENDING" }
-      ]
-    },
-    {
       "collectionGroup": "feedback",
       "queryScope": "COLLECTION",
       "fields": [
+        { "fieldPath": "packageId", "order": "ASCENDING" },
         { "fieldPath": "timestamp", "order": "DESCENDING" }
       ]
     }
